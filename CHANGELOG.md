@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runtime hotfixes for live install: listen-before-warm service startup,
   retrieval staleness gate, narrowed default corpus allowlist, scoped
   non-recursive workspace watcher behavior, and PM2 thread-count caps.
+- Hook query normalization that strips C4 channel/routing envelopes before
+  embedding, preferring `<current-message>` content when present.
 
 ### Changed
 - Chunk IDs are stable against unrelated section insertion/removal by deriving
@@ -48,6 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are no longer skipped by the hook client.
 - `<retrieved-memory>` note now warns that snippets from actively edited files
   may be stale.
+- Incremental indexing embeds changed chunks in configured batches and yields
+  between batches to keep the service event loop responsive during heavy first
+  index builds.
+- Runtime readiness is delayed until warmup and the initial freshness startup
+  index complete, so a fresh empty index fails open until the first build is
+  available.
 
 ### Upgrade Notes
 

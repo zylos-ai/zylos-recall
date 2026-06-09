@@ -88,6 +88,40 @@ Beta project memory has separate durable details that should be retrievable.`);
   assert.equal(embedder.calls.filter(call => call.mode === 'passage').length, 2);
 });
 
+test('embeds changed chunks in configured batches and yields between batches', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-index-batch-root-'));
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-index-batch-data-'));
+  const file = path.join(root, 'memory/reference/projects.md');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `# Alpha
+
+Alpha project memory has durable details that should be retrievable.
+
+# Beta
+
+Beta project memory has separate durable details that should be retrievable.
+
+# Gamma
+
+Gamma project memory has another set of durable details for indexing.`);
+
+  const config = makeConfig(root, path.join(data, 'index.sqlite'));
+  config.embedder.batchSize = 1;
+  const embedder = new FakeEmbedder();
+  let yields = 0;
+
+  const result = await buildIndex(config, {
+    embedder,
+    yieldAfterBatch: async () => { yields += 1; }
+  });
+
+  assert.equal(result.total, 3);
+  const passageCalls = embedder.calls.filter(call => call.mode === 'passage');
+  assert.equal(passageCalls.length, 3);
+  assert.deepEqual(passageCalls.map(call => call.texts.length), [1, 1, 1]);
+  assert.equal(yields, 2);
+});
+
 function embeddingRows(indexPath) {
   const db = new Database(indexPath, { readonly: true });
   try {

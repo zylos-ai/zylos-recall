@@ -56,6 +56,18 @@ class ThrowingStore extends FakeStore {
   }
 }
 
+class BlockingFreshness {
+  constructor() {
+    this.releaseStart = null;
+  }
+
+  async start() {
+    await new Promise(resolve => { this.releaseStart = resolve; });
+  }
+
+  async stop() {}
+}
+
 test('service exposes health and retrieve endpoints', async () => {
   const config = testConfig();
   const embedder = new FakeEmbedder();
@@ -115,6 +127,41 @@ test('service listens before warmup completes and fails open until ready', async
     await waitFor(async () => {
       const response = await fetch(`${baseUrl}/health`);
       return (await response.json()).ready === true;
+    });
+  } finally {
+    await stopRuntime();
+  }
+});
+
+test('service stays not ready until initial freshness startup completes', async () => {
+  const config = testConfig();
+  config.freshness.enabled = true;
+  const freshness = new BlockingFreshness();
+  const server = await startRuntime(config, {
+    embedder: new FakeEmbedder(),
+    store: new FakeStore(),
+    freshness
+  });
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    await waitFor(async () => {
+      const response = await fetch(`${baseUrl}/health`);
+      const payload = await response.json();
+      return payload.warming === false && payload.ready === false && payload.freshnessStarted === false;
+    });
+
+    const early = await fetch(`${baseUrl}/retrieve`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'alpha project details' })
+    });
+    assert.deepEqual(await early.json(), { ok: true, additionalContext: '' });
+
+    freshness.releaseStart();
+    await waitFor(async () => {
+      const response = await fetch(`${baseUrl}/health`);
+      const payload = await response.json();
+      return payload.ready === true && payload.freshnessStarted === true;
     });
   } finally {
     await stopRuntime();

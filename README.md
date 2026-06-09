@@ -107,14 +107,16 @@ npm start
 The install/upgrade hooks register `src/retrieve.js` as a Claude
 `UserPromptSubmit` hook. The hook client fails open and only emits
 `additionalContext` when the service returns a non-empty `<retrieved-memory>`
-block.
+block. C4 channel and routing envelopes are stripped before retrieval, so only
+the current user message is embedded.
 
 The service listens before model warmup/indexing finishes, so hooks fail open
 instead of blocking startup while the model loads. Freshness is maintained by
 background startup indexing, narrowly scoped filesystem watches where supported,
 and a periodic corpus mtime/size sweep fallback. Retrieval drops candidates when
-the source file has changed since indexing. Retrieval metadata is appended to
-`~/zylos/components/recall/logs/retrieval.jsonl` without chunk text.
+the source file has changed since indexing. The service reports ready only after
+warmup and the initial freshness startup index complete. Retrieval metadata is
+appended to `~/zylos/components/recall/logs/retrieval.jsonl` without chunk text.
 
 ## Built by Coco
 

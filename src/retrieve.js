@@ -33,6 +33,17 @@ export function extractPrompt(raw, argv) {
   }
 }
 
+export function normalizePromptForRetrieval(prompt) {
+  let text = String(prompt || '').trim();
+  const currentMessage = text.match(/<current-message>\s*([\s\S]*?)\s*<\/current-message>/i);
+  if (currentMessage) return currentMessage[1].trim();
+
+  text = text.replace(/(?:^|\n)\s*----\s*reply via:\s*node\s+[\s\S]*$/i, '').trim();
+  text = text.replace(/<replying-to>[\s\S]*?<\/replying-to>/gi, '').trim();
+  text = text.replace(/^\s*\[[^\]]+\]\s+[\s\S]*?\bsaid:\s*/i, '').trim();
+  return text;
+}
+
 export async function runRetrieveHook(options = {}) {
   try {
     const {
@@ -46,7 +57,7 @@ export async function runRetrieveHook(options = {}) {
 
     if (!config.enabled) return false;
     const argPrompt = argv.join(' ').trim();
-    const prompt = argPrompt || extractPrompt(await readStdin(stdin), []);
+    const prompt = normalizePromptForRetrieval(argPrompt || extractPrompt(await readStdin(stdin), []));
     if (!isSubstantive(prompt)) return false;
 
     const response = await fetchImpl(`http://${config.service.host}:${config.service.port}/retrieve`, {
