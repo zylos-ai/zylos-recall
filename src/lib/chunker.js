@@ -2,6 +2,8 @@ import path from 'node:path';
 import { sha256, shortHash } from './hash.js';
 
 const HEADING_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
+const LIST_MARKER_RE = /^(\s*)(?:[-*+]\s+|\d+[.)]\s+)/;
+const BOLD_LABEL_RE = /^(\s*)(?:(?:[-*+]\s+|\d+[.)]\s+))?\*\*[^*\n]{1,120}:\*\*/;
 
 export function estimateTokens(text) {
   if (!text) return 0;
@@ -41,46 +43,115 @@ function splitMarkdownSections(text) {
 }
 
 function splitOversizedSection(section, options) {
-  const targetTokens = options.targetTokens;
   const maxTokens = options.maxTokens;
-  const overlapTokens = Math.max(0, Math.floor(targetTokens * options.overlapRatio));
-  const paragraphs = section.lines.join('\n').split(/\n{2,}/);
+  const units = semanticUnits(section.lines);
   const chunks = [];
-  let current = [];
-  let currentTokens = 0;
 
-  for (const paragraph of paragraphs) {
-    const paragraphTokens = estimateTokens(paragraph);
-    if (current.length && currentTokens + paragraphTokens > maxTokens) {
-      chunks.push(current.join('\n\n').trim());
-      const overlap = [];
-      let tokenCount = 0;
-      for (let i = current.length - 1; i >= 0; i -= 1) {
-        const candidate = current[i];
-        tokenCount += estimateTokens(candidate);
-        if (tokenCount > overlapTokens) break;
-        overlap.unshift(candidate);
+  let pending = [];
+
+  function pendingText() {
+    return pending.join('\n\n').trim();
+  }
+
+  function flushPending({ final = false } = {}) {
+    const text = pendingText();
+    if (text) {
+      if (final && estimateTokens(text) < options.minTokens && chunks.length) {
+        const combined = `${chunks[chunks.length - 1]}\n\n${text}`;
+        if (estimateTokens(combined) <= maxTokens) chunks[chunks.length - 1] = combined;
+        else chunks.push(text);
+      } else {
+        chunks.push(text);
       }
-      current = overlap;
-      currentTokens = estimateTokens(current.join('\n\n'));
     }
+    pending = [];
+  }
 
-    if (paragraphTokens > maxTokens) {
-      const words = paragraph.split(/\s+/).filter(Boolean);
-      for (let i = 0; i < words.length; i += targetTokens) {
-        chunks.push(words.slice(i, i + maxTokens).join(' '));
-      }
-      current = [];
-      currentTokens = 0;
+  function appendPending(unit) {
+    if (!unit) return;
+    const candidate = [...pending, unit].join('\n\n').trim();
+    if (pending.length && estimateTokens(candidate) > maxTokens) flushPending();
+    pending.push(unit);
+  }
+
+  for (const unit of units) {
+    const unitTokens = estimateTokens(unit);
+
+    if (unitTokens > maxTokens) {
+      flushPending();
+      chunks.push(...splitLongText(unit, options));
       continue;
     }
 
-    current.push(paragraph);
-    currentTokens += paragraphTokens;
+    if (unitTokens < options.minTokens) {
+      appendPending(unit);
+      if (estimateTokens(pendingText()) >= options.minTokens) flushPending();
+      continue;
+    }
+
+    if (pending.length) {
+      const combined = [...pending, unit].join('\n\n').trim();
+      if (estimateTokens(pendingText()) < options.minTokens && estimateTokens(combined) <= maxTokens) {
+        chunks.push(combined);
+        pending = [];
+        continue;
+      }
+      flushPending();
+    }
+
+    chunks.push(unit);
   }
 
-  if (current.length) chunks.push(current.join('\n\n').trim());
+  flushPending({ final: true });
   return chunks.filter(Boolean);
+}
+
+function semanticUnits(lines) {
+  const units = [];
+  let current = [];
+  let previousBlank = false;
+
+  for (const line of lines) {
+    const boundary =
+      current.length > 0 &&
+      line.trim() &&
+      (
+        previousBlank ||
+        HEADING_RE.test(line) ||
+        isBoldLabelBoundary(line) ||
+        isTopLevelListItem(line)
+      );
+
+    if (boundary) {
+      units.push(current.join('\n').trim());
+      current = [];
+    }
+
+    current.push(line);
+    previousBlank = !line.trim();
+  }
+
+  if (current.some(line => line.trim())) units.push(current.join('\n').trim());
+  return units.filter(Boolean);
+}
+
+function isTopLevelListItem(line) {
+  const match = line.match(LIST_MARKER_RE);
+  return Boolean(match && match[1].length === 0);
+}
+
+function isBoldLabelBoundary(line) {
+  const match = line.match(BOLD_LABEL_RE);
+  return Boolean(match && match[1].length === 0);
+}
+
+function splitLongText(text, options) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const chunks = [];
+  for (let i = 0; i < words.length; i += options.targetTokens) {
+    chunks.push(words.slice(i, i + options.maxTokens).join(' '));
+  }
+  return chunks;
 }
 
 export function inferChunkMetadata(filePath, rootPath, stats) {
