@@ -83,18 +83,65 @@ Similarity = topical closeness, not task-usefulness. Gate cheap → expensive:
 | Hook wiring | component self-registers `UserPromptSubmit`; zylos-core deferred |
 | Robustness | **fail-open + hard timeout (~800ms)**: index missing / service down / any error → inject nothing, never block the turn |
 
-## 6. Interfaces (model-agnostic)
+## 6. Interfaces — a generic RAG substrate (policy deferred)
 
-**Embedder** — `embed(texts[], mode) -> vectors[]`, `dimension()`, `id()` where `mode ∈ {query, passage}` (encodes the right e5 prefix). Index keyed to embedder `id`+dim → swap = re-index. Drivers: `local-onnx` (ship: multilingual-e5-small), later `local-python`, `api`.
+**Design principle (Felix, 2026-06-09):** build the RAG *mechanism* now; defer the *policy* (exactly **what** to index/embed and **how** to retrieve/rank/route). The engine must not preclude any future indexing, embedding, or retrieval policy. v1 ships the simplest path (dense similarity + free gates); smarter policies are added as config + stages later, with **no re-architecture**. Three stable seams below; **build the seams general, implement only the v1 path (no speculative stages — YAGNI).**
 
-**Filter** — `filter(query, candidates[]) -> selected[]`. Drivers: `none` (v1 passthrough), `llm` (R4).
+### 6.1 Open chunk schema (the load-bearing seam)
+
+Every chunk is stored as a record whose typed columns are minimal and whose **`metadata` is an open JSON blob** — so any future indexing/embedding/retrieval policy can attach and key off arbitrary fields **without a schema migration**:
+
+```jsonc
+{
+  "id":        "string",          // stable chunk id
+  "text":      "string",          // verbatim chunk
+  "source":    "string",          // file path / origin
+  "hash":      "string",          // content hash (incremental reindex)
+  "mtime":     "number",
+  "embeddings": [                  // ZERO-OR-MORE — multi-vector / multi-embedder ready
+    { "embedder_id": "e5-small@384", "vector": [/* … */] }
+  ],
+  "metadata":  { /* OPEN BLOB — anything a policy needs */ }
+  //   v1 fills:   { "date": "...", "type": "memory|page|skill|doc" }
+  //   later, freely: { "tier": "...", "applies_when": "...", "importance": 0.0,
+  //                    "intent_tags": [...], "user_scope": "...", "supersedes": "..." }
+}
+```
+
+Requirements this guarantees:
+- **Embedding policy is open** — `embeddings` is a list keyed by `embedder_id`, so single-vector, multi-vector (ColBERT-style), or several embedders side-by-side all fit; metadata can hold sparse/keyword signals for hybrid (dense+BM25) retrieval later.
+- **Indexing policy is open** — what gets chunked, how it's split, and what tags are attached are all writes into `metadata`; the store never needs to know the policy.
+- **Retrieval policy is open** — any stage can **filter / weight / route / quota** on any `metadata` field (tier, applies_when, importance, intent_tags, user_scope). The metadata is the contract between "how we index" and "how we retrieve."
+
+### 6.2 Embedder interface
+
+`embed(texts[], mode) -> vectors[]`, `dimension()`, `id()` where `mode ∈ {query, passage}` (encodes the right e5 prefix). Index keyed to embedder `id`+dim → swap = re-index. Drivers: `local-onnx` (ship: multilingual-e5-small), later `local-python`, `api`, multi-vector.
+
+### 6.3 Retriever interface — an ordered, pluggable STAGE pipeline
+
+Retrieval is **not** a fixed function; it's a config-ordered list of stages, each a `Stage(ctx) -> ctx` over a shared retrieval context `{query, expandedQuery, candidates[], budget, log}`:
+
+```
+expand → retrieve[1..N] → merge → gate → rank → assemble
+```
+
+- v1 registers exactly ONE pipeline: `denseRetrieve(top-K) → freeGates(threshold/dedup/recency/budget) → assemble(<retrieved-memory>)`.
+- Later (no rewrite — just register stages): `queryExpand`, `applicabilityRetrieve` (routes on `metadata.applies_when`/intent), `quota`/`MMR` (reserve guidance slots), `alwaysOnCore`, `llmRerank` (R4).
+- Because every stage reads/writes the same metadata-rich candidate list, the "knowledge vs guidance / similarity vs applicability" distinction we discussed becomes *additional stages*, not a new engine.
+
+### 6.4 Filter
+
+`filter(query, candidates[]) -> selected[]`. A specialization of a rank/gate stage. Drivers: `none` (v1 passthrough), `llm` (R4).
 
 ```jsonc
 {
   "embedder": { "provider": "local-onnx", "model": "multilingual-e5-small" },
-  "filter":   { "provider": "none" },
-  "retrieval": { "topK": 5, "threshold": 0.35, "maxTotalTokens": 1500, "chunkTokens": 350 },
-  "corpus":   { "roots": ["..."], "allow": ["..."], "deny": ["..."] }
+  "retrieval": {
+    "pipeline": ["denseRetrieve", "freeGates", "assemble"],   // v1: one path; add stages later
+    "topK": 5, "threshold": 0.35, "maxTotalTokens": 1500, "chunkTokens": 350
+  },
+  "filter": { "provider": "none" },
+  "corpus": { "roots": ["..."], "allow": ["..."], "deny": ["..."] }
 }
 ```
 
@@ -102,8 +149,8 @@ Similarity = topical closeness, not task-usefulness. Gate cheap → expensive:
 
 | Slice | Deliverable |
 |-------|-------------|
-| **R1 — Scaffold + indexer** | config schema (corpus allow/denylist, embedder, filter, retrieval); corpus walker + **semantic chunker** (by section, bounded, content-hash); **embedder interface + local-onnx multilingual-e5-small driver** (query/passage modes); sqlite-vec store `{chunk, embedding, source, section, hash, mtime, embedder_id}`; build + **incremental** index (hash-diff) + full-reindex on embedder change; index/query CLI; unit tests. |
-| **R2 — Retrieval + free gates + format** | retriever: embed query → vector search → free gates (threshold/dedup/recency/budget) → `<retrieved-memory>` block (verbatim, source-tagged, truncate+pointer); warm embedding **PM2 service**; `retrieve.js` thin client with **fail-open + ~800ms timeout**; tests on a fixed corpus. |
+| **R1 — Scaffold + indexer** | config schema (corpus allow/denylist, embedder, retrieval pipeline, filter); corpus walker + **semantic chunker** (by section, bounded, content-hash); **embedder interface + local-onnx multilingual-e5-small driver** (query/passage modes); **open chunk store** per §6.1 — minimal typed columns + `embeddings[]` (multi-vector ready) + **open `metadata` JSON blob** (v1 fills date/type; future policies attach freely, no migration); sqlite-vec for vectors; build + **incremental** index (hash-diff) + full-reindex on embedder change; index/query CLI; unit tests. |
+| **R2 — Retrieval + free gates + format** | **Retriever stage-pipeline** per §6.3 (config-ordered `Stage(ctx)->ctx`); v1 registers ONE pipeline: `denseRetrieve → freeGates(threshold/dedup/recency/budget) → assemble(<retrieved-memory>)` (verbatim, source-tagged, truncate+pointer); warm embedding **PM2 service**; `retrieve.js` thin client with **fail-open + ~800ms timeout**; tests on a fixed corpus. (Pipeline shape is the seam; only the v1 stages are implemented.) |
 | **R3 — Hook wiring + freshness** | `post-install` registers `UserPromptSubmit`→`retrieve.js` (pre-uninstall removes); **per-tier freshness** (content-hash diff): memory tier re-index on Memory-Sync/checkpoint (+ mtime first-pass); non-memory tiers via fs-watcher (debounced) + scheduler sweep; trigger skip-rule; live end-to-end on Claude Code. |
 | **R4 — LLM gatekeeper** | filter interface + `none`/`llm` drivers; optional rerank stage; off the sync path. |
 | **R5 — Multi-provider + eval** | more embedder drivers (bge-m3, API); named per-embedder indexes; **eval harness** (labeled query→expected-memory → Recall@K / Precision@K). |
