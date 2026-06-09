@@ -56,7 +56,7 @@ export async function denseRetrieve(ctx) {
 export function freeGates(ctx) {
   const threshold = ctx.config.retrieval.threshold;
   const seenHashes = new Set();
-  const now = Date.now();
+  const now = ctx.now || Date.now();
   const recencyWeight = ctx.config.retrieval.recencyWeight || 0;
   const gated = [];
 

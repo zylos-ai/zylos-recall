@@ -1,0 +1,81 @@
+[
+  {
+    "id": "github-commit-identity",
+    "query": "what is the github commit identity convention",
+    "context": null,
+    "expect": [{ "source": "corpus/preferences.md", "grade": 3 }],
+    "forbid": ["corpus/noise-sourdough.md"],
+    "notes": "sharp factual - right doc should rank high"
+  },
+  {
+    "id": "recall-embedder-current",
+    "query": "what embedder did we choose for recall and why",
+    "context": null,
+    "expect": [
+      { "source": "corpus/recall-design.md", "grade": 3 },
+      { "source": "corpus/recall-design-old.md", "grade": 1 }
+    ],
+    "forbid": ["corpus/zylos-discord-README.md", "corpus/zylos-zalo-README.md"],
+    "notes": "current design should outrank superseded embedder notes"
+  },
+  {
+    "id": "c4-envelope-distractor",
+    "query": "why should recall strip reply via c4-send routing before embedding",
+    "context": null,
+    "expect": [{ "source": "corpus/recall-design.md", "grade": 3 }],
+    "forbid": ["corpus/zylos-discord-README.md", "corpus/zylos-zalo-README.md"],
+    "notes": "channel vocabulary distractors must not win"
+  },
+  {
+    "id": "subagent-model-inheritance",
+    "query": "should memory sync hardcode sonnet for subagents",
+    "context": null,
+    "expect": [{ "source": "corpus/decisions.md", "grade": 3 }],
+    "forbid": ["corpus/noise-france.md"],
+    "notes": "decision recall"
+  },
+  {
+    "id": "multilingual-recall",
+    "query": "召回为什么选择多语言模型",
+    "context": null,
+    "expect": [
+      { "source": "corpus/cn-mixed-design.md", "grade": 3 },
+      { "source": "corpus/recall-design.md", "grade": 2 }
+    ],
+    "forbid": ["corpus/noise-sourdough.md"],
+    "notes": "Chinese query should hit CN/EN mixed design"
+  },
+  {
+    "id": "felix-working-style",
+    "query": "how does Felix prefer engineering progress updates",
+    "context": null,
+    "expect": [{ "source": "corpus/users/felix/profile.md", "grade": 3 }],
+    "forbid": ["corpus/noise-france.md"],
+    "notes": "user profile case"
+  },
+  {
+    "id": "scheduler-done",
+    "query": "how should scheduled tasks be marked complete",
+    "context": null,
+    "expect": [{ "source": "corpus/scheduler-SKILL.md", "grade": 3 }],
+    "forbid": ["corpus/recall-design-old.md"],
+    "notes": "skill fixture case"
+  },
+  {
+    "id": "noise-france",
+    "query": "what is the capital of France",
+    "context": null,
+    "expect": [],
+    "forbid": ["corpus/preferences.md", "corpus/recall-design.md"],
+    "notes": "off-topic noise should not inject project memory"
+  },
+  {
+    "id": "context-disambiguation-forward",
+    "query": "yes that one",
+    "context": "We were discussing what embedder recall chose and why multilingual support matters.",
+    "expect": [{ "source": "corpus/recall-design.md", "grade": 1 }],
+    "forbid": ["corpus/zylos-discord-README.md"],
+    "notes": "forward-compatible case for future query-side summarizer; deterministic baseline may miss"
+  }
+]
+
