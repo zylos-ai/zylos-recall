@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createReranker } from '../src/lib/rerankers/index.js';
-import { LocalOnnxReranker, scoresFromLogits } from '../src/lib/rerankers/local-onnx.js';
+import { LocalOnnxReranker, preSlicePassageForTokenizer, scoresFromLogits } from '../src/lib/rerankers/local-onnx.js';
 
 test('reranker factory returns null for disabled provider', () => {
   assert.equal(createReranker({ provider: 'none' }), null);
@@ -46,7 +46,8 @@ test('reranker caps tokenizer input without changing caller text', async () => {
 
   assert.equal(scores.length, 1);
   assert.deepEqual(tokenized.texts, ['query text']);
-  assert.deepEqual(tokenized.options.text_pair, [original]);
+  assert.equal(tokenized.options.text_pair[0], preSlicePassageForTokenizer(original, 3));
+  assert.ok(tokenized.options.text_pair[0].length < original.length);
   assert.equal(tokenized.options.max_length, 3);
   assert.equal(original, 'one two three four five six');
 });
