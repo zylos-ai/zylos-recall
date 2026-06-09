@@ -124,5 +124,12 @@
     "expect": [],
     "contextExpect": [{ "source": "corpus/recall-design.md", "grade": 3 }, { "source": "corpus/cn-mixed-design.md", "grade": 2 }],
     "forbid": ["corpus/zylos-discord-README.md"],
-    "notes": "QUIET in deterministic baseline; contextExpect is forward-compat for the summarizer A/B (runner ignores it)" }
+    "notes": "QUIET in deterministic baseline; contextExpect is forward-compat for the summarizer A/B (runner ignores it)" },
+
+  { "id": "buried-conversation-store",
+    "query": "what are the conversation store capacity and retention limits",
+    "context": null,
+    "expect": [{ "source": "corpus/omnibus-entry.md", "grade": 3 }],
+    "forbid": [],
+    "notes": "DILUTION TEST: buried sub-fact in a large multi-topic omnibus entry — should MISS under current chunking, HIT after finer chunking" }
 ]
