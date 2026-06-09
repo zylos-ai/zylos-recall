@@ -42,10 +42,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   embedding, preferring `<current-message>` content when present.
 - R5 deterministic eval harness with frozen fixtures, golden cases, metric
   helpers, runner, baseline gate, and threshold/recency/topK sweep mode.
+- `zylos-recall inspect` CLI to audit recall utilization by pairing transcript
+  prompts with delivered `<retrieved-memory>` context.
+- Filter-target golden cases with `requiresFilter` gate exclusion so the eval
+  harness measures usefulness filtering separately from the baseline gate.
+- Local cross-encoder rerank filter using q8 `Xenova/bge-reranker-base`,
+  configured with `filter.provider: "rerank"` and the `rerankFilter` pipeline
+  stage.
+- Reranker warm-load and fail-open behavior so retrieval continues without the
+  optional filter when the reranker cannot warm or score a turn.
+- `rerankScore`, rerank stage timings, and passage-cap metadata in retrieval
+  logs without recording chunk text.
+- `filter.maxPassageTokens` with default `128` and validation range `64..256`
+  to cap reranker scorer input while preserving full stored and injected chunks.
 
 ### Changed
 - Chunk IDs are stable against unrelated section insertion/removal by deriving
   IDs from source, section slug, duplicate-heading occurrence, and part index.
+- Dense markdown sections now split at semantic sub-boundaries when a section
+  mixes multiple labeled topics, improving retrieval of buried facts.
 - Incremental indexing preserves vector row IDs for unchanged chunks instead of
   deleting and reinserting embeddings.
 - Short substantive prompts with at least three words, such as `fix the bug`,
@@ -58,6 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Runtime readiness is delayed until warmup and the initial freshness startup
   index complete, so a fresh empty index fails open until the first build is
   available.
+- Reranker passage scoring now applies a cheap pre-tokenizer text slice plus
+  tokenizer `max_length` to keep live K=5 reranking under the hook timeout.
 
 ### Upgrade Notes
 
@@ -66,5 +83,9 @@ Initial release. For fresh installation:
 ```bash
 zylos add recall
 ```
+
+The rerank filter is opt-in. Existing installs that explicitly configure
+`retrieval.pipeline` must include `rerankFilter` in that pipeline when enabling
+`filter.provider: "rerank"`.
 
 No migration required.
