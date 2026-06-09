@@ -72,6 +72,9 @@ test('watch roots are narrowed to concrete allowlist subtrees', () => {
     'http/public/pages',
     '.claude/skills',
     'workspace',
+    'workspace/example/docs',
+    'workspace/example/node_modules',
+    'workspace/example/.git',
     'node_modules',
     '.git'
   ]) {
@@ -81,16 +84,19 @@ test('watch roots are narrowed to concrete allowlist subtrees', () => {
   const config = structuredClone(DEFAULT_CONFIG);
   config.corpus.roots = [root];
 
-  const watched = concreteWatchDirs(config).map(dir => path.relative(root, dir).split(path.sep).join('/'));
+  const watched = concreteWatchDirs(config).map(entry => ({
+    dir: path.relative(root, entry.dir).split(path.sep).join('/'),
+    recursive: entry.recursive
+  }));
 
   assert.deepEqual(watched, [
-    '.claude/skills',
-    'http/public/pages',
-    'memory/reference',
-    'memory/users',
-    'workspace'
+    { dir: '.claude/skills', recursive: false },
+    { dir: 'http/public/pages', recursive: true },
+    { dir: 'memory/reference', recursive: true },
+    { dir: 'memory/users', recursive: true },
+    { dir: 'workspace', recursive: false }
   ]);
-  assert.equal(watched.includes('node_modules'), false);
-  assert.equal(watched.includes('.git'), false);
-  assert.equal(watched.includes(''), false);
+  assert.equal(watched.some(entry => entry.dir === 'node_modules'), false);
+  assert.equal(watched.some(entry => entry.dir === '.git'), false);
+  assert.equal(watched.some(entry => entry.dir === ''), false);
 });

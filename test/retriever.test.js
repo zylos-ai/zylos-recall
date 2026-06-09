@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import { DEFAULT_CONFIG } from '../src/lib/config.js';
 import { retrieveMemory } from '../src/lib/retriever.js';
@@ -43,34 +46,35 @@ class FakeStore {
 
 test('retrieval pipeline gates, ranks, budgets, and assembles context', async () => {
   const config = structuredClone(DEFAULT_CONFIG);
+  const { root, mtimes } = makeCorpus(['old', 'new', 'duplicate', 'weak']);
+  config.corpus.roots = [root];
   config.retrieval.threshold = 0.5;
   config.retrieval.recencyWeight = 0.2;
   config.retrieval.maxTotalTokens = 12;
   config.retrieval.chunkTokens = 6;
-  const now = Date.now();
   const store = new FakeStore([
     candidate('old', {
       hash: 'old-hash',
-      score: 0.6,
-      mtime: now - 60 * 86_400_000,
+      score: 0.52,
+      mtime: mtimes.old,
       text: 'old alpha project details should still be available here'
     }),
     candidate('new', {
       hash: 'new-hash',
       score: 0.55,
-      mtime: now,
+      mtime: mtimes.new,
       text: 'new alpha project details should rank first because recent'
     }),
     candidate('duplicate', {
       hash: 'new-hash',
       score: 0.54,
-      mtime: now,
+      mtime: mtimes.duplicate,
       text: 'duplicate new alpha content should be deduplicated'
     }),
     candidate('weak', {
       hash: 'weak-hash',
       score: 0.49,
-      mtime: now,
+      mtime: mtimes.weak,
       text: 'weak match should not pass threshold'
     })
   ]);
@@ -83,6 +87,7 @@ test('retrieval pipeline gates, ranks, budgets, and assembles context', async ()
   assert.equal(store.initialized, true);
   assert.deepEqual(result.selected.map(item => item.id), ['new', 'old']);
   assert.match(result.additionalContext, /^<retrieved-memory note=/);
+  assert.match(result.additionalContext, /actively editing any cited source file/);
   assert.match(result.additionalContext, /\[memory\/reference\/new\.md . 2026-06-09\]/);
   assert.match(result.additionalContext, /\[truncated; read source file for full chunk\]/);
   assert.match(result.additionalContext, /<\/retrieved-memory>$/);
@@ -91,6 +96,8 @@ test('retrieval pipeline gates, ranks, budgets, and assembles context', async ()
 
 test('retrieval returns empty context when gates reject all candidates', async () => {
   const config = structuredClone(DEFAULT_CONFIG);
+  const { root, mtimes } = makeCorpus(['weak']);
+  config.corpus.roots = [root];
   config.retrieval.threshold = 0.95;
   const result = await retrieveMemory(config, 'alpha project', {
     embedder: new FakeEmbedder(),
@@ -98,7 +105,7 @@ test('retrieval returns empty context when gates reject all candidates', async (
       candidate('weak', {
         hash: 'weak-hash',
         score: 0.4,
-        mtime: Date.now(),
+        mtime: mtimes.weak,
         text: 'weak alpha project match'
       })
     ])
@@ -107,6 +114,44 @@ test('retrieval returns empty context when gates reject all candidates', async (
   assert.equal(result.additionalContext, '');
   assert.equal(result.selected.length, 0);
 });
+
+test('retrieval drops stale candidates whose source file changed after indexing', async () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  const { root, mtimes } = makeCorpus(['stale']);
+  config.corpus.roots = [root];
+  fs.appendFileSync(path.join(root, 'memory/reference/stale.md'), '\nnewer edit');
+
+  const result = await retrieveMemory(config, 'alpha project', {
+    embedder: new FakeEmbedder(),
+    store: new FakeStore([
+      candidate('stale', {
+        hash: 'stale-hash',
+        score: 0.9,
+        mtime: mtimes.stale,
+        text: 'stale alpha project match'
+      })
+    ])
+  });
+
+  assert.equal(result.additionalContext, '');
+  assert.equal(result.selected.length, 0);
+});
+
+function makeCorpus(ids) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-retriever-'));
+  const dir = path.join(root, 'memory/reference');
+  fs.mkdirSync(dir, { recursive: true });
+  const mtimes = {};
+  for (let index = 0; index < ids.length; index += 1) {
+    const id = ids[index];
+    const file = path.join(dir, `${id}.md`);
+    fs.writeFileSync(file, `# ${id}\n\n${id} alpha project memory`);
+    const time = new Date(Date.parse('2026-06-09T00:00:00Z') + index * 1000);
+    fs.utimesSync(file, time, time);
+    mtimes[id] = time.getTime();
+  }
+  return { root, mtimes };
+}
 
 function candidate(id, overrides) {
   return {
