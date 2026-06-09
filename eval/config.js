@@ -17,7 +17,9 @@ export function createEvalConfig(overrides = {}) {
   config.corpus.maxFileBytes = 256 * 1024;
   config.chunking.minTokens = overrides.minTokens || 8;
   config.retrieval.topK = overrides.topK || 5;
-  config.retrieval.threshold = overrides.threshold ?? config.retrieval.threshold;
+  // Default the eval report to the live deployed threshold (0.65) so the regression
+  // gate tests the shipped gate config; the sweep overrides this per grid point.
+  config.retrieval.threshold = overrides.threshold ?? 0.65;
   config.retrieval.recencyWeight = overrides.recencyWeight ?? config.retrieval.recencyWeight;
   config.enabled = true;
   return config;

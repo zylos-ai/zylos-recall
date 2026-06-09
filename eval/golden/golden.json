@@ -1,81 +1,128 @@
 [
-  {
-    "id": "github-commit-identity",
+  { "id": "github-commit-identity",
     "query": "what is the github commit identity convention",
     "context": null,
     "expect": [{ "source": "corpus/preferences.md", "grade": 3 }],
     "forbid": ["corpus/noise-sourdough.md"],
-    "notes": "sharp factual - right doc should rank high"
-  },
-  {
-    "id": "recall-embedder-current",
-    "query": "what embedder did we choose for recall and why",
-    "context": null,
-    "expect": [
-      { "source": "corpus/recall-design.md", "grade": 3 },
-      { "source": "corpus/recall-design-old.md", "grade": 1 }
-    ],
-    "forbid": ["corpus/zylos-discord-README.md", "corpus/zylos-zalo-README.md"],
-    "notes": "current design should outrank superseded embedder notes"
-  },
-  {
-    "id": "c4-envelope-distractor",
-    "query": "why should recall strip reply via c4-send routing before embedding",
-    "context": null,
-    "expect": [{ "source": "corpus/recall-design.md", "grade": 3 }],
-    "forbid": ["corpus/zylos-discord-README.md", "corpus/zylos-zalo-README.md"],
-    "notes": "channel vocabulary distractors must not win"
-  },
-  {
-    "id": "subagent-model-inheritance",
-    "query": "should memory sync hardcode sonnet for subagents",
+    "notes": "sharp factual — should-hit" },
+
+  { "id": "subagent-model-inheritance",
+    "query": "should background subagents hardcode the claude model",
     "context": null,
     "expect": [{ "source": "corpus/decisions.md", "grade": 3 }],
     "forbid": ["corpus/noise-france.md"],
-    "notes": "decision recall"
-  },
-  {
-    "id": "multilingual-recall",
-    "query": "召回为什么选择多语言模型",
+    "notes": "decision recall" },
+
+  { "id": "wab-onboarding-status",
+    "query": "is whatsapp business onboarding ready to resume yet",
     "context": null,
-    "expect": [
-      { "source": "corpus/cn-mixed-design.md", "grade": 3 },
-      { "source": "corpus/recall-design.md", "grade": 2 }
-    ],
+    "expect": [{ "source": "corpus/decisions.md", "grade": 3 }],
     "forbid": ["corpus/noise-sourdough.md"],
-    "notes": "Chinese query should hit CN/EN mixed design"
-  },
-  {
-    "id": "felix-working-style",
-    "query": "how does Felix prefer engineering progress updates",
+    "notes": "decision recall" },
+
+  { "id": "component-naming-prefix",
+    "query": "should an installed skill directory keep a zylos prefix",
     "context": null,
-    "expect": [{ "source": "corpus/users/felix/profile.md", "grade": 3 }],
+    "expect": [{ "source": "corpus/decisions.md", "grade": 3 }],
     "forbid": ["corpus/noise-france.md"],
-    "notes": "user profile case"
-  },
-  {
-    "id": "scheduler-done",
+    "notes": "decision recall" },
+
+  { "id": "e5-query-passage-prefixes",
+    "query": "does recall use query and passage prefixes for embeddings",
+    "context": null,
+    "expect": [{ "source": "corpus/recall-design.md", "grade": 3 }],
+    "forbid": ["corpus/recall-design-old.md", "corpus/noise-france.md"],
+    "notes": "current design; old must lose" },
+
+  { "id": "scheduler-mark-done",
     "query": "how should scheduled tasks be marked complete",
     "context": null,
     "expect": [{ "source": "corpus/scheduler-SKILL.md", "grade": 3 }],
     "forbid": ["corpus/recall-design-old.md"],
-    "notes": "skill fixture case"
-  },
-  {
-    "id": "noise-france",
+    "notes": "skill fixture" },
+
+  { "id": "recall-pipeline",
+    "query": "how does the recall retrieval pipeline work",
+    "context": null,
+    "expect": [{ "source": "corpus/recall-design.md", "grade": 3 }, { "source": "corpus/cn-mixed-design.md", "grade": 1 }],
+    "forbid": ["corpus/zylos-discord-README.md", "corpus/zylos-zalo-README.md"],
+    "notes": "multi-doc graded" },
+
+  { "id": "report-progress-to-felix",
+    "query": "how should I report progress to Felix during a build",
+    "context": null,
+    "expect": [{ "source": "corpus/users/felix/profile.md", "grade": 3 }, { "source": "corpus/preferences.md", "grade": 2 }],
+    "forbid": ["corpus/noise-sourdough.md"],
+    "notes": "multi-doc graded; profile primary" },
+
+  { "id": "current-embedder-recency",
+    "query": "what embedder did recall actually choose",
+    "context": null,
+    "expect": [{ "source": "corpus/recall-design.md", "grade": 3 }, { "source": "corpus/recall-design-old.md", "grade": 1 }],
+    "forbid": ["corpus/zylos-discord-README.md"],
+    "notes": "RECENCY: current(e5,2026-06-09) must outrank old(bge,2026-05-20) — tests fixture dating" },
+
+  { "id": "envelope-strip-rationale",
+    "query": "why does recall strip the reply via c4-send routing before embedding",
+    "context": null,
+    "expect": [{ "source": "corpus/recall-design.md", "grade": 3 }],
+    "forbid": ["corpus/zylos-discord-README.md", "corpus/zylos-zalo-README.md"],
+    "notes": "ANTI-HIJACK: channel-vocab distractors must not win" },
+
+  { "id": "cn-embedder-choice",
+    "query": "召回为什么选择多语言模型",
+    "context": null,
+    "expect": [{ "source": "corpus/cn-mixed-design.md", "grade": 3 }, { "source": "corpus/recall-design.md", "grade": 2 }],
+    "forbid": ["corpus/noise-sourdough.md"],
+    "notes": "multilingual: CN query → CN/EN doc" },
+
+  { "id": "cn-pipeline",
+    "query": "recall 的检索流程是怎样的",
+    "context": null,
+    "expect": [{ "source": "corpus/recall-design.md", "grade": 3 }, { "source": "corpus/cn-mixed-design.md", "grade": 2 }],
+    "forbid": ["corpus/zylos-zalo-README.md"],
+    "notes": "multilingual cross-lingual" },
+
+  { "id": "noise-france",
     "query": "what is the capital of France",
     "context": null,
     "expect": [],
-    "forbid": ["corpus/preferences.md", "corpus/recall-design.md"],
-    "notes": "off-topic noise should not inject project memory"
-  },
-  {
-    "id": "context-disambiguation-forward",
-    "query": "yes that one",
-    "context": "We were discussing what embedder recall chose and why multilingual support matters.",
+    "forbid": ["corpus/preferences.md", "corpus/recall-design.md", "corpus/decisions.md"],
+    "notes": "QUIET: pure noise must stay empty" },
+
+  { "id": "noise-sourdough",
+    "query": "how do I bake sourdough bread at home",
+    "context": null,
     "expect": [],
-    "contextExpect": [{ "source": "corpus/recall-design.md", "grade": 1 }],
+    "forbid": ["corpus/recall-design.md", "corpus/decisions.md"],
+    "notes": "QUIET: pure noise" },
+
+  { "id": "noise-weather",
+    "query": "will it rain tomorrow afternoon",
+    "context": null,
+    "expect": [],
+    "forbid": ["corpus/recall-design.md", "corpus/preferences.md"],
+    "notes": "QUIET: nothing in corpus" },
+
+  { "id": "vague-ack",
+    "query": "yes that works for me",
+    "context": null,
+    "expect": [],
+    "forbid": [],
+    "notes": "QUIET: short ack — adversarial (preferences.md has a Short Message Rule section; must still stay quiet)" },
+
+  { "id": "vague-next",
+    "query": "ok what should we do next",
+    "context": null,
+    "expect": [],
+    "forbid": [],
+    "notes": "QUIET: vague, no concrete topic" },
+
+  { "id": "context-forward-embedder",
+    "query": "yes that one",
+    "context": "We were comparing embedder choices for recall and why multilingual support matters.",
+    "expect": [],
+    "contextExpect": [{ "source": "corpus/recall-design.md", "grade": 3 }, { "source": "corpus/cn-mixed-design.md", "grade": 2 }],
     "forbid": ["corpus/zylos-discord-README.md"],
-    "notes": "forward-compatible case for future query-side summarizer; deterministic baseline should stay quiet"
-  }
+    "notes": "QUIET in deterministic baseline; contextExpect is forward-compat for the summarizer A/B (runner ignores it)" }
 ]

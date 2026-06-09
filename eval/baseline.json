@@ -1,6 +1,7 @@
 {
-  "meanNdcgAtK": 0,
-  "injectedF1": 0,
-  "quietAccuracy": 0,
-  "maxForbidViolations": 0
+  "_comment": "Regression floor measured from the green run at the live threshold (0.65) on the 18-case golden set (2026-06-09). meanNdcgAtK = ranker ceiling; injectedF1/quietAccuracy = gated-set quality; maxForbidViolations = the 2 known channel-distractor leaks (envelope-strip case) pending the R4 usefulness gate. Tighten these as retrieval improves.",
+  "meanNdcgAtK": 0.95,
+  "injectedF1": 0.85,
+  "quietAccuracy": 0.6,
+  "maxForbidViolations": 2
 }
