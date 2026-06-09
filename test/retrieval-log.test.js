@@ -19,7 +19,7 @@ test('appends retrieval metadata without chunk text', () => {
     query: 'alpha project details',
     durationMs: 12,
     injected: true,
-    stages: [{ stage: 'rerankFilter', scored: 2, kept: 1, durationMs: 42 }],
+    stages: [{ stage: 'rerankFilter', scored: 2, kept: 1, maxPassageTokens: 128, durationMs: 42 }],
     selected: [{
       id: 'alpha',
       source: 'memory/reference/projects.md',
@@ -39,7 +39,7 @@ test('appends retrieval metadata without chunk text', () => {
   assert.equal(parsed.selected[0].rerankScore, 0.812346);
   assert.equal(parsed.selected[0].rankScore, 0.812346);
   assert.equal(parsed.selected[0].finalScore, 0.934568);
-  assert.deepEqual(parsed.stages, [{ stage: 'rerankFilter', scored: 2, kept: 1, durationMs: 42 }]);
+  assert.deepEqual(parsed.stages, [{ stage: 'rerankFilter', scored: 2, kept: 1, maxPassageTokens: 128, durationMs: 42 }]);
   assert.equal(line.includes('chunk text must not be logged'), false);
   assert.equal(record.injected, true);
 });

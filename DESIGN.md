@@ -140,7 +140,7 @@ expand → retrieve[1..N] → merge → gate → rank → assemble
     "pipeline": ["denseRetrieve", "rerankFilter", "freeGates", "assemble"],
     "topK": 5, "threshold": 0.35, "maxTotalTokens": 1500, "chunkTokens": 350
   },
-  "filter": { "provider": "none" },
+  "filter": { "provider": "none", "maxPassageTokens": 128 },
   "corpus": { "roots": ["..."], "allow": ["..."], "deny": ["..."] }
 }
 ```

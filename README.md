@@ -89,7 +89,8 @@ Edit `~/zylos/components/recall/config.json`:
     "model": "Xenova/bge-reranker-base",
     "dtype": "q8",
     "threshold": 0.5,
-    "keepK": 5
+    "keepK": 5,
+    "maxPassageTokens": 128
   }
 }
 ```
@@ -131,8 +132,11 @@ and a periodic corpus mtime/size sweep fallback. Retrieval drops candidates when
 the source file has changed since indexing. The service reports ready only after
 embedder warmup, optional reranker warmup, and the initial freshness startup
 index complete. If the optional reranker fails to warm or score a turn, retrieval
-continues fail-open without it. Retrieval metadata, stage timings, and scores are
-appended to `~/zylos/components/recall/logs/retrieval.jsonl` without chunk text.
+continues fail-open without it. The reranker scores with a cheap pre-tokenizer
+passage slice plus a tokenizer length cap (`filter.maxPassageTokens`, default
+128) for latency only; stored chunks and assembled memory are unchanged.
+Retrieval metadata, stage timings, tokenizer caps, and scores are appended to
+`~/zylos/components/recall/logs/retrieval.jsonl` without chunk text.
 
 ## Eval Harness
 

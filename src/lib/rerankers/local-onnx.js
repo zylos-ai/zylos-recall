@@ -1,5 +1,7 @@
 import { AutoModelForSequenceClassification, AutoTokenizer, env, LogLevel } from '@huggingface/transformers';
 
+const PRETOKENIZE_CHARS_PER_TOKEN = 6;
+
 export class LocalOnnxReranker {
   constructor(config) {
     this.config = config;
@@ -47,9 +49,10 @@ export class LocalOnnxReranker {
     const { tokenizer, model } = await this.load();
     const queries = passages.map(() => String(query || ''));
     const inputs = tokenizer(queries, {
-      text_pair: passages.map(passage => String(passage || '')),
+      text_pair: passages.map(passage => preSlicePassageForTokenizer(passage, this.config.maxPassageTokens)),
       padding: true,
-      truncation: true
+      truncation: true,
+      max_length: this.config.maxPassageTokens
     });
     const outputs = await model(inputs);
     return scoresFromLogits(outputs.logits);
@@ -59,6 +62,13 @@ export class LocalOnnxReranker {
 export function scoresFromLogits(logits) {
   const rows = logits.tolist();
   return rows.map(row => sigmoid(Array.isArray(row) ? row[row.length - 1] : row));
+}
+
+export function preSlicePassageForTokenizer(passage, maxPassageTokens) {
+  const text = String(passage || '');
+  const maxChars = maxPassageTokens * PRETOKENIZE_CHARS_PER_TOKEN;
+  if (text.length <= maxChars) return text;
+  return text.slice(0, maxChars);
 }
 
 function sigmoid(value) {

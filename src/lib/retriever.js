@@ -93,6 +93,7 @@ export async function rerankFilter(ctx) {
       kept: ctx.candidates.length,
       threshold: filter.threshold,
       keepK: filter.keepK,
+      maxPassageTokens: filter.maxPassageTokens,
       durationMs: Date.now() - started
     });
   } catch (err) {
