@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/server.js",
     "test": "node --test",
-    "check": "find src hooks test -name '*.js' -print | sort | xargs node --check"
+    "check": "find src hooks eval test -name '*.js' -print | sort | xargs node --check"
   },
   "homepage": "https://github.com/zylos-ai/zylos-recall#readme",
   "bugs": {

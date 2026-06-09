@@ -118,6 +118,22 @@ the source file has changed since indexing. The service reports ready only after
 warmup and the initial freshness startup index complete. Retrieval metadata is
 appended to `~/zylos/components/recall/logs/retrieval.jsonl` without chunk text.
 
+## Eval Harness
+
+The deterministic eval harness lives in `eval/`. It builds an eval-only index
+from frozen fixtures, runs golden query cases through the real retrieval path,
+reports ranker-ceiling P@k/Recall@k/MRR/nDCG plus gated injection/quiet metrics,
+and can sweep threshold/recency/topK without re-embedding each grid point.
+
+```bash
+node eval/build-index.js
+node eval/run.js
+node eval/run.js --sweep threshold=0.30:0.80:0.05
+```
+
+See [eval/README.md](./eval/README.md) for the golden-case schema and baseline
+update process.
+
 ## Built by Coco
 
 Zylos is the open-source core of [Coco](https://coco.xyz/) — the AI employee platform.

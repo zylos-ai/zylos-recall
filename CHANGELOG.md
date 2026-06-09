@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-recursive workspace watcher behavior, and PM2 thread-count caps.
 - Hook query normalization that strips C4 channel/routing envelopes before
   embedding, preferring `<current-message>` content when present.
+- R5 deterministic eval harness with frozen fixtures, golden cases, metric
+  helpers, runner, baseline gate, and threshold/recency/topK sweep mode.
 
 ### Changed
 - Chunk IDs are stable against unrelated section insertion/removal by deriving
