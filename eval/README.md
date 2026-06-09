@@ -26,8 +26,10 @@ summary. Ranking metrics are reported over should-hit cases only; expect-empty
 cases are scored by quiet accuracy. It exits non-zero when the summary falls
 below `eval/baseline.json`.
 
-The checked-in baseline is intentionally permissive until the curated golden set
-is finalized; tighten it from a green run after ground-truth review.
+The checked-in baseline is measured from the green run at the live threshold
+(`0.65`) on the curated 18-case golden set. It allows the two known
+channel-distractor leaks in `envelope-strip-rationale` pending the R4 usefulness
+gate; tighten it as retrieval improves.
 
 Golden case sources use the `corpus/...` prefix. The index itself is rooted at
 `eval/corpus`, and the runner normalizes indexed source paths for reporting.

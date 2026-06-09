@@ -1,0 +1,15 @@
+# Keep repository-only test and eval artifacts out of the shipped package.
+eval/
+test/
+
+# Local/runtime artifacts
+node_modules/
+logs/
+*.log
+eval/index.sqlite*
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
