@@ -1,6 +1,6 @@
 {
   "name": "zylos-recall",
-  "version": "0.1.0",
+  "version": "0.0.8",
   "description": "Proactive memory retrieval (RAG) — surfaces relevant memory into context each turn",
   "type": "module",
   "main": "src/index.js",

@@ -1,6 +1,6 @@
 ---
 name: recall
-version: 0.1.0
+version: 0.0.8
 description: >
   Proactive memory retrieval (RAG) for Zylos memory. Provides the local
   Markdown corpus indexer, sqlite-vec chunk store, warm retrieval service, and
