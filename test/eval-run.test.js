@@ -26,6 +26,13 @@ class FakeEmbedder {
   }
 }
 
+class FakeReranker {
+  async rerank(query, passages) {
+    if (query.includes('dirty')) return passages.map(() => 0.9);
+    return passages.map(passage => passage.includes('noise') ? 0.1 : 0.9);
+  }
+}
+
 test('eval runner builds a tiny index and scores deterministic cases', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-eval-root-'));
   const corpus = path.join(root, 'corpus');
@@ -103,9 +110,9 @@ test('sweep mode re-gates a precomputed candidate pool', async () => {
   assert.equal(sweep.best.threshold, 0.9);
 });
 
-test('file-level metrics dedupe multiple chunks from the same source', () => {
+test('file-level metrics dedupe multiple chunks from the same source', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-eval-dedupe-'));
-  const result = scoreCase(
+  const result = await scoreCase(
     {
       id: 'multi-chunk',
       query: 'alpha details',
@@ -128,6 +135,9 @@ test('file-level metrics dedupe multiple chunks from the same source', () => {
 test('requiresFilter cases are excluded from the baseline gate but reported separately', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-eval-filter-'));
   const config = createEvalConfig({ threshold: 0.5, topK: 5, recencyWeight: 0 });
+  config.filter.provider = 'rerank';
+  config.filter.threshold = 0.5;
+  config.filter.keepK = 5;
   config.corpus.roots = [root];
   const cleanPool = [candidate(root, 'alpha.md', 0.95)];
   const dirtyPool = [candidate(root, 'alpha.md', 0.95), candidate(root, 'noise.md', 0.8)];
@@ -135,19 +145,23 @@ test('requiresFilter cases are excluded from the baseline gate but reported sepa
     config,
     cases: [
       { id: 'normal', query: 'alpha', expect: [{ source: 'corpus/alpha.md', grade: 3 }], forbid: ['corpus/noise.md'] },
-      { id: 'filt', query: 'alpha', requiresFilter: true, expect: [{ source: 'corpus/alpha.md', grade: 3 }], forbid: ['corpus/noise.md'] }
+      { id: 'filt', query: 'alpha', requiresFilter: true, expect: [{ source: 'corpus/alpha.md', grade: 3 }], forbid: ['corpus/noise.md'] },
+      { id: 'filt-dirty', query: 'dirty alpha', requiresFilter: true, expect: [{ source: 'corpus/alpha.md', grade: 3 }], forbid: ['corpus/noise.md'] }
     ],
-    candidatePools: new Map([['normal', cleanPool], ['filt', dirtyPool]]),
+    candidatePools: new Map([['normal', cleanPool], ['filt', dirtyPool], ['filt-dirty', dirtyPool]]),
     baseline: { maxForbidViolations: 0, meanNdcgAtK: 0 },
+    reranker: new FakeReranker(),
     print: false
   });
 
-  // The filter case injects forbidden noise, but it must NOT break the gate.
+  // The filter case stays outside the gate, while the eval path still runs rerankFilter.
   assert.equal(result.passed, true);
   assert.equal(result.summary.cases, 1, 'gating summary counts only non-filter cases');
   assert.equal(result.summary.forbidViolations, 0, 'filter-case forbid violations are excluded from the gate');
-  assert.equal(result.filterResults.length, 1);
-  assert.deepEqual(result.filterResults[0].forbidViolations, ['corpus/noise.md']);
+  assert.equal(result.filterResults.length, 2);
+  assert.deepEqual(result.filterResults.find(item => item.id === 'filt').forbidViolations, []);
+  assert.deepEqual(result.filterResults.find(item => item.id === 'filt').selected.map(candidate => candidate.source), ['corpus/alpha.md']);
+  assert.deepEqual(result.filterResults.find(item => item.id === 'filt-dirty').forbidViolations, ['corpus/noise.md']);
 });
 
 test('build-index applies explicit and default fixture dates to mtimes before indexing', () => {

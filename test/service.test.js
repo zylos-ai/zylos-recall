@@ -56,6 +56,12 @@ class ThrowingStore extends FakeStore {
   }
 }
 
+class ThrowingReranker {
+  async warmup() {
+    throw new Error('reranker warm failed');
+  }
+}
+
 class BlockingFreshness {
   constructor() {
     this.releaseStart = null;
@@ -163,6 +169,35 @@ test('service stays not ready until initial freshness startup completes', async 
       const payload = await response.json();
       return payload.ready === true && payload.freshnessStarted === true;
     });
+  } finally {
+    await stopRuntime();
+  }
+});
+
+test('service records reranker warm failures and continues fail-open', async () => {
+  const config = testConfig();
+  config.filter.provider = 'rerank';
+  const server = await startRuntime(config, {
+    embedder: new FakeEmbedder(),
+    reranker: new ThrowingReranker(),
+    store: new FakeStore()
+  });
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    await waitFor(async () => {
+      const response = await fetch(`${baseUrl}/health`);
+      const payload = await response.json();
+      return payload.ready === true && payload.rerankWarmError === 'reranker warm failed';
+    });
+
+    const retrieve = await fetch(`${baseUrl}/retrieve`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'alpha project details' })
+    });
+    const payload = await retrieve.json();
+    assert.equal(payload.ok, true);
+    assert.match(payload.additionalContext, /<retrieved-memory/);
   } finally {
     await stopRuntime();
   }

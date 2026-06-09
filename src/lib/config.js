@@ -67,7 +67,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     cacheDir: path.join(DATA_DIR, 'models')
   },
   retrieval: {
-    pipeline: ['denseRetrieve', 'freeGates', 'assemble'],
+    pipeline: ['denseRetrieve', 'rerankFilter', 'freeGates', 'assemble'],
     topK: 5,
     threshold: 0.35,
     maxTotalTokens: 1500,
@@ -87,7 +87,12 @@ export const DEFAULT_CONFIG = Object.freeze({
     sweepIntervalMs: 300000
   },
   filter: {
-    provider: 'none'
+    provider: 'none',
+    model: 'Xenova/bge-reranker-base',
+    dtype: 'q8',
+    threshold: 0.5,
+    keepK: 5,
+    cacheDir: path.join(DATA_DIR, 'models')
   }
 });
 
@@ -129,6 +134,7 @@ function normalizeConfig(input) {
   merged.dataDir = expandHome(merged.dataDir);
   merged.indexPath = expandHome(merged.indexPath);
   merged.embedder.cacheDir = expandHome(merged.embedder.cacheDir);
+  merged.filter.cacheDir = expandHome(merged.filter.cacheDir);
   merged.corpus.roots = merged.corpus.roots.map(expandHome);
   return validateConfig(merged);
 }
@@ -183,8 +189,28 @@ export function validateConfig(value) {
   if (!Number.isInteger(value.freshness?.sweepIntervalMs) || value.freshness.sweepIntervalMs < 0) {
     errors.push('freshness.sweepIntervalMs must be a non-negative integer');
   }
-  if (value.filter?.provider !== 'none') {
-    errors.push('filter.provider must be none for v1');
+  if (!['none', 'rerank'].includes(value.filter?.provider)) {
+    errors.push('filter.provider must be one of: none, rerank');
+  }
+  if (value.filter?.provider === 'rerank') {
+    if (typeof value.filter.model !== 'string' || !value.filter.model.trim()) {
+      errors.push('filter.model must be a non-empty string when filter.provider is rerank');
+    }
+    if (value.filter.dtype !== 'q8') {
+      errors.push('filter.dtype must be q8 when filter.provider is rerank');
+    }
+    if (typeof value.filter.cacheDir !== 'string' || !value.filter.cacheDir.trim()) {
+      errors.push('filter.cacheDir must be a non-empty string when filter.provider is rerank');
+    }
+    if (typeof value.filter.threshold !== 'number' || value.filter.threshold < 0 || value.filter.threshold > 1) {
+      errors.push('filter.threshold must be a number between 0 and 1 when filter.provider is rerank');
+    }
+    if (!Number.isInteger(value.filter.keepK) || value.filter.keepK <= 0) {
+      errors.push('filter.keepK must be a positive integer when filter.provider is rerank');
+    }
+    if (Number.isInteger(value.retrieval?.topK) && Number.isInteger(value.filter.keepK) && value.filter.keepK > value.retrieval.topK) {
+      errors.push('filter.keepK must be <= retrieval.topK when filter.provider is rerank');
+    }
   }
   if (errors.length) {
     throw new Error(`Invalid recall config: ${errors.join('; ')}`);

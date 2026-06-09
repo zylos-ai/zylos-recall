@@ -65,7 +65,7 @@ Edit `~/zylos/components/recall/config.json`:
     "dimension": 384
   },
   "retrieval": {
-    "pipeline": ["denseRetrieve", "freeGates", "assemble"],
+    "pipeline": ["denseRetrieve", "rerankFilter", "freeGates", "assemble"],
     "topK": 5,
     "threshold": 0.35,
     "maxTotalTokens": 1500,
@@ -84,7 +84,13 @@ Edit `~/zylos/components/recall/config.json`:
     "debounceMs": 1000,
     "sweepIntervalMs": 300000
   },
-  "filter": { "provider": "none" }
+  "filter": {
+    "provider": "none",
+    "model": "Xenova/bge-reranker-base",
+    "dtype": "q8",
+    "threshold": 0.5,
+    "keepK": 5
+  }
 }
 ```
 
@@ -119,11 +125,13 @@ block. C4 channel and routing envelopes are stripped before retrieval, so only
 the current user message is embedded.
 
 The service listens before model warmup/indexing finishes, so hooks fail open
-instead of blocking startup while the model loads. Freshness is maintained by
+instead of blocking startup while models load. Freshness is maintained by
 background startup indexing, narrowly scoped filesystem watches where supported,
 and a periodic corpus mtime/size sweep fallback. Retrieval drops candidates when
 the source file has changed since indexing. The service reports ready only after
-warmup and the initial freshness startup index complete. Retrieval metadata is
+embedder warmup, optional reranker warmup, and the initial freshness startup
+index complete. If the optional reranker fails to warm or score a turn, retrieval
+continues fail-open without it. Retrieval metadata, stage timings, and scores are
 appended to `~/zylos/components/recall/logs/retrieval.jsonl` without chunk text.
 
 ## Eval Harness

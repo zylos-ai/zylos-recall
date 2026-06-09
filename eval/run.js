@@ -7,7 +7,7 @@ import { buildEvalIndex } from './build-index.js';
 import { createEvalConfig, DEFAULT_EVAL_NOW, EVAL_DIR } from './config.js';
 import { mean, mrr, ndcgAtK, precisionAtK, recallAtK } from './metrics.js';
 import { queryIndex } from '../src/lib/indexer.js';
-import { assemble, freeGates } from '../src/lib/retriever.js';
+import { assemble, freeGates, rerankFilter } from '../src/lib/retriever.js';
 
 const GOLDEN_PATH = path.join(EVAL_DIR, 'golden/golden.json');
 const BASELINE_PATH = path.join(EVAL_DIR, 'baseline.json');
@@ -27,13 +27,19 @@ export async function runEval(options = {}) {
   });
 
   if (options.sweep) {
-    return runSweep(cases, config, candidatePools, { k, sweep: options.sweep, now: options.now });
+    return runSweep(cases, config, candidatePools, {
+      k,
+      sweep: options.sweep,
+      now: options.now,
+      reranker: options.reranker
+    });
   }
 
-  const caseResults = cases.map(testCase => scoreCase(testCase, candidatePools.get(testCase.id) || [], config, {
+  const caseResults = await Promise.all(cases.map(testCase => scoreCase(testCase, candidatePools.get(testCase.id) || [], config, {
     k,
-    now: options.now
-  }));
+    now: options.now,
+    reranker: options.reranker
+  })));
   // requiresFilter cases are R4 usefulness-filter targets: they are DESIGNED to fail
   // pre-filter (a superseded/mention doc passes similarity), so they are reported but
   // excluded from the baseline pass/fail gate until the filter exists.
@@ -58,12 +64,16 @@ export async function collectCandidatePools(cases, config, options = {}) {
   return pools;
 }
 
-export function scoreCase(testCase, candidates, baseConfig, options = {}) {
+export async function scoreCase(testCase, candidates, baseConfig, options = {}) {
   const k = options.k || 5;
   const ranked = dedupeBySource(sortCandidates(candidates)).map(candidate => sourceForGolden(candidate.source));
   const relevantSet = new Set(testCase.expect.map(item => item.source));
   const gradeMap = new Map(testCase.expect.map(item => [item.source, item.grade]));
-  const selected = applyGates(candidates, baseConfig, { now: options.now }).map(candidate => ({
+  const selected = (await applyGates(candidates, baseConfig, {
+    query: testCase.query,
+    now: options.now,
+    reranker: options.reranker
+  })).map(candidate => ({
     ...candidate,
     source: sourceForGolden(candidate.source)
   }));
@@ -95,18 +105,21 @@ export function scoreCase(testCase, candidates, baseConfig, options = {}) {
   };
 }
 
-export function applyGates(candidates, baseConfig, options = {}) {
+export async function applyGates(candidates, baseConfig, options = {}) {
   const config = structuredClone(baseConfig);
   if (options.threshold !== undefined) config.retrieval.threshold = options.threshold;
   if (options.recencyWeight !== undefined) config.retrieval.recencyWeight = options.recencyWeight;
   if (options.topK !== undefined) config.retrieval.topK = options.topK;
   const ctx = {
     config,
+    query: options.query || '',
     candidates: sortCandidates(candidates).slice(0, config.retrieval.topK),
     selected: [],
     log: [],
+    reranker: options.reranker || null,
     now: options.now || DEFAULT_EVAL_NOW
   };
+  await rerankFilter(ctx);
   freeGates(ctx);
   assemble(ctx);
   return ctx.selected;
@@ -138,7 +151,7 @@ export function summarize(caseResults, k) {
   };
 }
 
-export function runSweep(cases, baseConfig, candidatePools, options = {}) {
+export async function runSweep(cases, baseConfig, candidatePools, options = {}) {
   const k = options.k || 5;
   const grids = normalizeSweep(options.sweep);
   const rows = [];
@@ -149,12 +162,12 @@ export function runSweep(cases, baseConfig, candidatePools, options = {}) {
         config.retrieval.threshold = threshold;
         config.retrieval.recencyWeight = recencyWeight;
         config.retrieval.topK = topK;
-        const caseResults = cases.map(testCase => scoreCase(
+        const caseResults = await Promise.all(cases.map(testCase => scoreCase(
           testCase,
           candidatePools.get(testCase.id) || [],
           config,
-          { k, now: options.now }
-        ));
+          { k, now: options.now, reranker: options.reranker }
+        )));
         rows.push({
           threshold,
           recencyWeight,

@@ -4,7 +4,7 @@ import { sha256 } from './hash.js';
 
 const SECRET_RE = /\b(?:sk-[A-Za-z0-9_-]+|[A-Za-z0-9_-]*token[A-Za-z0-9_-]*[:=][^\s]+|[A-Za-z0-9_-]*secret[A-Za-z0-9_-]*[:=][^\s]+)\b/gi;
 
-export function appendRetrievalLog(config, { query, selected = [], durationMs, injected }) {
+export function appendRetrievalLog(config, { query, selected = [], stages = [], durationMs, injected }) {
   const logPath = config.retrieval?.logPath || path.join(config.dataDir, 'logs', 'retrieval.jsonl');
   const record = {
     ts: new Date().toISOString(),
@@ -12,10 +12,13 @@ export function appendRetrievalLog(config, { query, selected = [], durationMs, i
     queryPreview: redactQuery(String(query || '')),
     durationMs,
     injected: Boolean(injected),
+    stages,
     selected: selected.map(candidate => ({
       id: candidate.id,
       source: candidate.source,
       score: roundScore(candidate.score),
+      rerankScore: roundScore(candidate.rerankScore),
+      rankScore: roundScore(candidate.rankScore),
       finalScore: roundScore(candidate.finalScore)
     }))
   };

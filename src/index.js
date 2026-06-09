@@ -10,12 +10,14 @@ import http from 'node:http';
 import { createEmbedder } from './lib/embedders/index.js';
 import { FreshnessManager } from './lib/freshness.js';
 import { appendRetrievalLog } from './lib/retrieval-log.js';
+import { createReranker } from './lib/rerankers/index.js';
 import { retrieveMemory } from './lib/retriever.js';
 import { ChunkStore } from './lib/store.js';
 
 let config = null;
 let server = null;
 let embedder = null;
+let reranker = null;
 let store = null;
 let freshness = null;
 let runtimeGeneration = 0;
@@ -23,6 +25,7 @@ let runtimeState = {
   ready: false,
   warming: false,
   warmError: null,
+  rerankWarmError: null,
   freshnessStarted: false,
   freshnessError: null
 };
@@ -57,6 +60,7 @@ export async function startRuntime(activeConfig, options = {}) {
   runtimeGeneration = generation;
   config = activeConfig;
   embedder = options.embedder || createEmbedder(activeConfig.embedder);
+  reranker = options.reranker === undefined ? createReranker(activeConfig.filter) : options.reranker;
   store = options.store || new ChunkStore(activeConfig.indexPath);
   store.initialize(embedder);
   freshness = options.freshness || new FreshnessManager(activeConfig, { embedder, store });
@@ -64,6 +68,7 @@ export async function startRuntime(activeConfig, options = {}) {
     ready: false,
     warming: true,
     warmError: null,
+    rerankWarmError: null,
     freshnessStarted: false,
     freshnessError: null
   };
@@ -126,11 +131,12 @@ export async function handleRetrieve(req, res) {
       sendJson(res, 200, { ok: true, additionalContext: '' });
       return;
     }
-    const result = await retrieveMemory(config, query, { embedder, store, storeInitialized: true });
+    const result = await retrieveMemory(config, query, { embedder, reranker, store, storeInitialized: true });
     try {
       appendRetrievalLog(config, {
         query,
         selected: result.selected,
+        stages: result.log,
         durationMs: Date.now() - started,
         injected: Boolean(result.additionalContext)
       });
@@ -144,6 +150,7 @@ export async function handleRetrieve(req, res) {
         id: candidate.id,
         source: candidate.source,
         score: candidate.score,
+        rerankScore: candidate.rerankScore,
         finalScore: candidate.finalScore
       }))
     });
@@ -197,7 +204,6 @@ async function startBackgroundRuntime(generation) {
     console.log('[recall] Warming embedder...');
     await embedder.embed(['warmup'], 'query');
     if (generation !== runtimeGeneration) return;
-    runtimeState.warming = false;
     console.log('[recall] Embedder warm.');
   } catch (err) {
     if (generation !== runtimeGeneration) return;
@@ -206,6 +212,24 @@ async function startBackgroundRuntime(generation) {
     console.error(`[recall] Embedder warm failed: ${err.message}`);
     return;
   }
+
+  if (reranker) {
+    try {
+      if (generation !== runtimeGeneration) return;
+      console.log('[recall] Warming reranker...');
+      await reranker.warmup();
+      if (generation !== runtimeGeneration) return;
+      console.log('[recall] Reranker warm.');
+    } catch (err) {
+      if (generation !== runtimeGeneration) return;
+      runtimeState.rerankWarmError = err.message;
+      reranker = null;
+      console.error(`[recall] Reranker warm failed; continuing fail-open: ${err.message}`);
+    }
+  }
+
+  if (generation !== runtimeGeneration) return;
+  runtimeState.warming = false;
 
   try {
     if (generation !== runtimeGeneration) return;

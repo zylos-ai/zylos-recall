@@ -125,19 +125,19 @@ Retrieval is **not** a fixed function; it's a config-ordered list of stages, eac
 expand → retrieve[1..N] → merge → gate → rank → assemble
 ```
 
-- v1 registers exactly ONE pipeline: `denseRetrieve(top-K) → freeGates(threshold/dedup/recency/budget) → assemble(<retrieved-memory>)`.
-- Later (no rewrite — just register stages): `queryExpand`, `applicabilityRetrieve` (routes on `metadata.applies_when`/intent), `quota`/`MMR` (reserve guidance slots), `alwaysOnCore`, `llmRerank` (R4).
+- current pipeline: `denseRetrieve(top-K) → rerankFilter(optional/no-op by default) → freeGates(threshold/dedup/recency/budget) → assemble(<retrieved-memory>)`.
+- Later (no rewrite — just register stages): `queryExpand`, `applicabilityRetrieve` (routes on `metadata.applies_when`/intent), `quota`/`MMR` (reserve guidance slots), `alwaysOnCore`.
 - Because every stage reads/writes the same metadata-rich candidate list, the "knowledge vs guidance / similarity vs applicability" distinction we discussed becomes *additional stages*, not a new engine.
 
 ### 6.4 Filter
 
-`filter(query, candidates[]) -> selected[]`. A specialization of a rank/gate stage. Drivers: `none` (v1 passthrough), `llm` (R4).
+`filter(query, candidates[]) -> selected[]`. A specialization of a rank/gate stage. Drivers: `none` (passthrough), `rerank` (local cross-encoder precision filter).
 
 ```jsonc
 {
   "embedder": { "provider": "local-onnx", "model": "multilingual-e5-small" },
   "retrieval": {
-    "pipeline": ["denseRetrieve", "freeGates", "assemble"],   // v1: one path; add stages later
+    "pipeline": ["denseRetrieve", "rerankFilter", "freeGates", "assemble"],
     "topK": 5, "threshold": 0.35, "maxTotalTokens": 1500, "chunkTokens": 350
   },
   "filter": { "provider": "none" },
@@ -150,9 +150,9 @@ expand → retrieve[1..N] → merge → gate → rank → assemble
 | Slice | Deliverable |
 |-------|-------------|
 | **R1 — Scaffold + indexer** | config schema (corpus allow/denylist, embedder, retrieval pipeline, filter); corpus walker + **semantic chunker** (by section, bounded, content-hash); **embedder interface + local-onnx multilingual-e5-small driver** (query/passage modes); **open chunk store** per §6.1 — minimal typed columns + `embeddings[]` (multi-vector ready) + **open `metadata` JSON blob** (v1 fills date/type; future policies attach freely, no migration); sqlite-vec for vectors; build + **incremental** index (hash-diff) + full-reindex on embedder change; index/query CLI; unit tests. |
-| **R2 — Retrieval + free gates + format** | **Retriever stage-pipeline** per §6.3 (config-ordered `Stage(ctx)->ctx`); v1 registers ONE pipeline: `denseRetrieve → freeGates(threshold/dedup/recency/budget) → assemble(<retrieved-memory>)` (verbatim, source-tagged, truncate+pointer); warm embedding **PM2 service**; `retrieve.js` thin client with **fail-open + ~800ms timeout**; tests on a fixed corpus. (Pipeline shape is the seam; only the v1 stages are implemented.) |
+| **R2 — Retrieval + free gates + format** | **Retriever stage-pipeline** per §6.3 (config-ordered `Stage(ctx)->ctx`); initial pipeline: `denseRetrieve → freeGates(threshold/dedup/recency/budget) → assemble(<retrieved-memory>)` (verbatim, source-tagged, truncate+pointer); warm embedding **PM2 service**; `retrieve.js` thin client with **fail-open + ~800ms timeout**; tests on a fixed corpus. |
 | **R3 — Hook wiring + freshness** | `post-install` registers `UserPromptSubmit`→`retrieve.js` (pre-uninstall removes); **per-tier freshness** (content-hash diff): memory tier re-index on Memory-Sync/checkpoint (+ mtime first-pass); non-memory tiers via fs-watcher (debounced) + scheduler sweep; trigger skip-rule; live end-to-end on Claude Code. |
-| **R4 — LLM gatekeeper** | filter interface + `none`/`llm` drivers; optional rerank stage; off the sync path. |
+| **R4 — Cross-encoder precision filter** | optional local rerank stage (`none`/`rerank`) in the per-turn retrieval pipeline; fail-open and warmed with the service. |
 | **R5 — Multi-provider + eval** | more embedder drivers (bge-m3, API); named per-embedder indexes; **eval harness** (labeled query→expected-memory → Recall@K / Precision@K). |
 
 **v1 = R1–R3.**
