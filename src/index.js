@@ -198,13 +198,13 @@ async function startBackgroundRuntime(generation) {
     await embedder.embed(['warmup'], 'query');
     if (generation !== runtimeGeneration) return;
     runtimeState.warming = false;
-    runtimeState.ready = true;
     console.log('[recall] Embedder warm.');
   } catch (err) {
     if (generation !== runtimeGeneration) return;
     runtimeState.warming = false;
     runtimeState.warmError = err.message;
     console.error(`[recall] Embedder warm failed: ${err.message}`);
+    return;
   }
 
   try {
@@ -212,8 +212,11 @@ async function startBackgroundRuntime(generation) {
     await freshness.start();
     if (generation !== runtimeGeneration) return;
     runtimeState.freshnessStarted = true;
+    runtimeState.ready = true;
+    console.log('[recall] Runtime ready.');
   } catch (err) {
     if (generation !== runtimeGeneration) return;
+    runtimeState.ready = false;
     runtimeState.freshnessError = err.message;
     console.error(`[recall] Freshness start failed: ${err.message}`);
   }
