@@ -2,11 +2,13 @@
 
 import { loadConfig } from './lib/config.js';
 import { buildIndex, queryIndex } from './lib/indexer.js';
+import { retrieveMemory } from './lib/retriever.js';
 
 function usage() {
   return `Usage:
   zylos-recall index [--config <path>]
   zylos-recall query [--config <path>] [--top-k <n>] <text>
+  zylos-recall retrieve [--config <path>] <text>
 `;
 }
 
@@ -55,6 +57,14 @@ async function main() {
     if (!query) throw new Error('query text is required');
     const results = await queryIndex(config, query, { topK: options.topK });
     console.log(JSON.stringify(results, null, 2));
+    return;
+  }
+
+  if (command === 'retrieve') {
+    const query = positionals.join(' ').trim();
+    if (!query) throw new Error('retrieve text is required');
+    const result = await retrieveMemory(config, query);
+    console.log(result.additionalContext);
     return;
   }
 

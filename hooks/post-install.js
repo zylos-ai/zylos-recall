@@ -81,7 +81,13 @@ const INITIAL_CONFIG = {
     topK: 5,
     threshold: 0.35,
     maxTotalTokens: 1500,
-    chunkTokens: 350
+    chunkTokens: 350,
+    recencyWeight: 0.05
+  },
+  service: {
+    host: '127.0.0.1',
+    port: 37537,
+    timeoutMs: 800
   },
   filter: {
     provider: 'none'

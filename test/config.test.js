@@ -13,13 +13,14 @@ test('loads defaults when config file is absent', () => {
   assert.deepEqual(config.filter, { provider: 'none' });
 });
 
-test('rejects unsupported R1 providers', () => {
+test('rejects unsupported v1 providers', () => {
   assert.throws(() => validateConfig({
     enabled: true,
     corpus: { roots: ['/tmp'], allow: [], deny: [], maxFileBytes: 1 },
     chunking: { targetTokens: 10, minTokens: 1, maxTokens: 20, overlapRatio: 0.1 },
     embedder: { provider: 'api', dimension: 384 },
     retrieval: { pipeline: [] },
+    service: { host: '127.0.0.1', port: 37537, timeoutMs: 800 },
     filter: { provider: 'none' }
   }), /embedder\.provider/);
 });

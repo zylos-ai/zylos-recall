@@ -173,23 +173,26 @@ export class ChunkStore {
           updatedAt: now
         });
 
+        const isUnchanged = existing?.hash === chunk.hash;
         if (!existing) inserted += 1;
-        else if (existing.hash === chunk.hash) unchanged += 1;
+        else if (isUnchanged) unchanged += 1;
         else updated += 1;
 
-        for (const row of selectEmbeddingIds.all(chunk.id)) {
-          deleteVector.run(BigInt(row.id));
-        }
-        deleteEmbeddings.run(chunk.id);
-        for (const embedding of embeddings) {
-          const result = insertEmbedding.run(
-            chunk.id,
-            embedderId,
-            embedding.vector_index,
-            chunk.hash,
-            now
-          );
-          insertVector.run(BigInt(result.lastInsertRowid), JSON.stringify(embedding.vector));
+        if (!isUnchanged) {
+          for (const row of selectEmbeddingIds.all(chunk.id)) {
+            deleteVector.run(BigInt(row.id));
+          }
+          deleteEmbeddings.run(chunk.id);
+          for (const embedding of embeddings) {
+            const result = insertEmbedding.run(
+              chunk.id,
+              embedderId,
+              embedding.vector_index,
+              chunk.hash,
+              now
+            );
+            insertVector.run(BigInt(result.lastInsertRowid), JSON.stringify(embedding.vector));
+          }
         }
       }
     });

@@ -74,7 +74,13 @@ export const DEFAULT_CONFIG = Object.freeze({
     topK: 5,
     threshold: 0.35,
     maxTotalTokens: 1500,
-    chunkTokens: 350
+    chunkTokens: 350,
+    recencyWeight: 0.05
+  },
+  service: {
+    host: '127.0.0.1',
+    port: 37537,
+    timeoutMs: 800
   },
   filter: {
     provider: 'none'
@@ -155,8 +161,17 @@ export function validateConfig(value) {
   if (!Array.isArray(value.retrieval?.pipeline)) {
     errors.push('retrieval.pipeline must be an array');
   }
+  if (typeof value.service?.host !== 'string' || !value.service.host.trim()) {
+    errors.push('service.host must be a non-empty string');
+  }
+  if (!Number.isInteger(value.service?.port) || value.service.port <= 0 || value.service.port > 65535) {
+    errors.push('service.port must be a valid TCP port');
+  }
+  if (!Number.isInteger(value.service?.timeoutMs) || value.service.timeoutMs <= 0) {
+    errors.push('service.timeoutMs must be a positive integer');
+  }
   if (value.filter?.provider !== 'none') {
-    errors.push('filter.provider must be none for R1');
+    errors.push('filter.provider must be none for v1');
   }
   if (errors.length) {
     throw new Error(`Invalid recall config: ${errors.join('; ')}`);
