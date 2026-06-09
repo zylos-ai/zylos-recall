@@ -34,10 +34,15 @@ export async function runEval(options = {}) {
     k,
     now: options.now
   }));
-  const summary = summarize(caseResults, k);
+  // requiresFilter cases are R4 usefulness-filter targets: they are DESIGNED to fail
+  // pre-filter (a superseded/mention doc passes similarity), so they are reported but
+  // excluded from the baseline pass/fail gate until the filter exists.
+  const gatingResults = caseResults.filter(result => !result.requiresFilter);
+  const filterResults = caseResults.filter(result => result.requiresFilter);
+  const summary = summarize(gatingResults, k);
   const passed = passesBaseline(summary, baseline);
-  if (options.print !== false) printReport(caseResults, summary, baseline);
-  return { cases: caseResults, summary, baseline, passed };
+  if (options.print !== false) printReport(caseResults, summary, baseline, filterResults, k);
+  return { cases: caseResults, summary, baseline, passed, filterResults };
 }
 
 export async function collectCandidatePools(cases, config, options = {}) {
@@ -74,6 +79,7 @@ export function scoreCase(testCase, candidates, baseConfig, options = {}) {
     id: testCase.id,
     query: testCase.query,
     shouldHit,
+    requiresFilter: Boolean(testCase.requiresFilter),
     ranked,
     selected,
     precisionAtK: precisionAtK(ranked, relevantSet, k),
@@ -251,12 +257,12 @@ function passesBaseline(summary, baseline) {
   return true;
 }
 
-function printReport(caseResults, summary, baseline) {
+function printReport(caseResults, summary, baseline, filterResults = [], k = summary.k) {
   console.log('id\ttype\tP@k\tR@k\tMRR\tnDCG@k\tinjR\tinjP\tquiet\tforbid');
   for (const result of caseResults) {
     console.log([
       result.id,
-      result.shouldHit ? 'hit' : 'empty',
+      result.requiresFilter ? 'filter' : (result.shouldHit ? 'hit' : 'empty'),
       format(result.precisionAtK),
       format(result.recallAtK),
       format(result.mrr),
@@ -271,6 +277,11 @@ function printReport(caseResults, summary, baseline) {
   console.log(`summary\tcases=${summary.cases}\tshouldHit=${summary.shouldHitCases}\texpectEmpty=${summary.expectEmptyCases}\tmeanP@${summary.k}=${format(summary.meanPrecisionAtK)}\tmeanR@${summary.k}=${format(summary.meanRecallAtK)}\tmeanMRR=${format(summary.meanMrr)}\tmeanNDCG@${summary.k}=${format(summary.meanNdcgAtK)}\tinjectedF1=${format(summary.injectedF1)}\tquiet=${format(summary.quietAccuracy)}\tforbid=${summary.forbidViolations}`);
   if (baseline) {
     console.log(`baseline\tmeanNDCG@${summary.k}>=${baseline.meanNdcgAtK}\tinjectedF1>=${baseline.injectedF1 ?? 0}\tquiet>=${baseline.quietAccuracy ?? 0}\tforbid<=${baseline.maxForbidViolations ?? 0}`);
+  }
+  if (filterResults.length) {
+    const forbidHits = filterResults.reduce((sum, r) => sum + r.forbidViolations.length, 0);
+    const cleanInject = filterResults.filter(r => r.injectedHit && !r.forbidViolations.length).length;
+    console.log(`filter-target\tcases=${filterResults.length}\tforbidViolations=${forbidHits}\tclean=${cleanInject}\t(NOT gated — R4 usefulness-filter targets; expected to fail pre-filter)`);
   }
 }
 

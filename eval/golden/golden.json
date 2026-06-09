@@ -131,5 +131,29 @@
     "context": null,
     "expect": [{ "source": "corpus/omnibus-entry.md", "grade": 3 }],
     "forbid": [],
-    "notes": "DILUTION TEST: buried sub-fact in a large multi-topic omnibus entry — should MISS under current chunking, HIT after finer chunking" }
+    "notes": "DILUTION TEST: buried sub-fact in a large multi-topic omnibus entry — should MISS under current chunking, HIT after finer chunking" },
+
+  { "id": "filter-superseded-embedder",
+    "query": "which embedder did recall settle on, e5 or bge",
+    "context": null,
+    "requiresFilter": true,
+    "expect": [{ "source": "corpus/recall-design.md", "grade": 3 }],
+    "forbid": ["corpus/recall-design-old.md"],
+    "notes": "FILTER/superseded: stale bge doc ranks #1 @0.659 ABOVE current e5 @0.654 — similarity prefers stale; usefulness filter must drop the superseded. Expected to fail pre-filter." },
+
+  { "id": "filter-mention-vs-answer-scheduler",
+    "query": "what is the exact way to mark a scheduled task complete",
+    "context": null,
+    "requiresFilter": true,
+    "expect": [{ "source": "corpus/scheduler-SKILL.md", "grade": 3 }],
+    "forbid": ["corpus/status-digest.md"],
+    "notes": "FILTER/mention-vs-answer: answer @0.672; mention-digest passes @0.627 at low threshold — filter drops the mention. Expected to fail pre-filter (at low threshold)." },
+
+  { "id": "filter-mention-vs-answer-wab",
+    "query": "walk me through the whatsapp business onboarding steps",
+    "context": null,
+    "requiresFilter": true,
+    "expect": [{ "source": "corpus/decisions.md", "grade": 3 }],
+    "forbid": ["corpus/status-digest.md"],
+    "notes": "FILTER/mention-vs-answer: answer (decisions) and mention-digest TIE @0.656 — similarity blind to mention-vs-answer; filter keeps decisions, drops digest. Expected to fail pre-filter." }
 ]
