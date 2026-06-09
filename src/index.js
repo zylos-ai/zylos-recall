@@ -7,7 +7,6 @@
 
 import { getConfig, watchConfig, DATA_DIR } from './lib/config.js';
 import http from 'node:http';
-import { pathToFileURL } from 'node:url';
 import { createEmbedder } from './lib/embedders/index.js';
 import { FreshnessManager } from './lib/freshness.js';
 import { appendRetrievalLog } from './lib/retrieval-log.js';
@@ -185,7 +184,7 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
-function shutdown() {
+export function shutdown() {
   console.log(`[recall] Shutting down...`);
   if (server) server.close();
   if (freshness) freshness.stop();
@@ -218,13 +217,4 @@ async function startBackgroundRuntime(generation) {
     runtimeState.freshnessError = err.message;
     console.error(`[recall] Freshness start failed: ${err.message}`);
   }
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
-  main().catch(err => {
-    console.error(`[recall] Fatal error:`, err);
-    process.exit(1);
-  });
 }

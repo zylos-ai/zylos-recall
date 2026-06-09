@@ -4,7 +4,7 @@ const os = require('os');
 module.exports = {
   apps: [{
     name: 'zylos-recall',
-    script: 'src/index.js',
+    script: 'src/server.js',
     cwd: path.join(os.homedir(), 'zylos/.claude/skills/recall'),
     env: {
       NODE_ENV: 'production',

@@ -12,7 +12,7 @@ lifecycle:
   service:
     type: pm2
     name: zylos-recall
-    entry: src/index.js
+    entry: src/server.js
   data_dir: ~/zylos/components/recall
   hooks:
     configure: hooks/configure.js
