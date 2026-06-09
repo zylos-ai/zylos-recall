@@ -100,6 +100,14 @@ npx zylos-recall query "discord voice channel decisions"
 # Run the gated retrieval pipeline and print a <retrieved-memory> block
 npx zylos-recall retrieve "discord voice channel decisions"
 
+# Audit what recall actually injected: pair each user prompt in the live
+# Claude Code session transcript with the <retrieved-memory> block it received
+# (or "stayed quiet"). Reads Claude's own transcript, so it reflects what truly
+# reached context. Claude Code runtime only.
+npx zylos-recall inspect --last 12          # summarized (sources per turn)
+npx zylos-recall inspect --last 12 --full   # full injected block per turn
+npx zylos-recall inspect --session <id>     # an older session
+
 # Start the warm local retrieval service
 npm start
 ```
