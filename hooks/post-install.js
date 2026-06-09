@@ -17,10 +17,75 @@ import path from 'node:path';
 
 const HOME = process.env.HOME;
 const DATA_DIR = path.join(HOME, 'zylos/components/recall');
+const INDEX_PATH = path.join(DATA_DIR, 'index.sqlite');
 
-// Minimal initial config - full defaults are in src/lib/config.js
 const INITIAL_CONFIG = {
-  enabled: true
+  enabled: true,
+  dataDir: DATA_DIR,
+  indexPath: INDEX_PATH,
+  corpus: {
+    roots: [path.join(HOME, 'zylos')],
+    allow: [
+      'memory/reference/**/*.md',
+      'memory/users/**/*.md',
+      'http/public/pages/**/*.md',
+      '.claude/skills/*/SKILL.md',
+      '.claude/skills/*/references/**/*.md',
+      'workspace/*.md',
+      'workspace/**/README.md',
+      'workspace/**/DESIGN.md',
+      'workspace/**/CHANGELOG.md',
+      'workspace/**/CLAUDE.md',
+      'workspace/**/docs/**/*.md'
+    ],
+    deny: [
+      '**/.git/**',
+      '**/node_modules/**',
+      '**/logs/**',
+      '**/*.log',
+      '**/.env',
+      '**/.env.*',
+      '**/*secret*',
+      '**/*token*',
+      'memory/identity.md',
+      'memory/state.md',
+      'memory/references.md',
+      'memory/sessions/**',
+      'memory/archive/**',
+      'CLAUDE.md',
+      'AGENTS.md',
+      'ZYLOS.md',
+      '**/*.bak',
+      '**/*.backup',
+      '**/*.RETIRED',
+      '**/index.sqlite',
+      '**/index.sqlite-*'
+    ],
+    maxFileBytes: 524288
+  },
+  chunking: {
+    targetTokens: 350,
+    minTokens: 40,
+    maxTokens: 500,
+    overlapRatio: 0.15
+  },
+  embedder: {
+    provider: 'local-onnx',
+    model: 'Xenova/multilingual-e5-small',
+    dimension: 384,
+    batchSize: 16,
+    cacheDir: path.join(DATA_DIR, 'models')
+  },
+  retrieval: {
+    pipeline: ['denseRetrieve', 'freeGates', 'assemble'],
+    topK: 5,
+    threshold: 0.35,
+    maxTotalTokens: 1500,
+    chunkTokens: 350
+  },
+  filter: {
+    provider: 'none'
+  }
 };
 
 console.log('[post-install] Running recall-specific setup...\n');
@@ -28,27 +93,18 @@ console.log('[post-install] Running recall-specific setup...\n');
 // 1. Create subdirectories
 console.log('Creating subdirectories...');
 fs.mkdirSync(path.join(DATA_DIR, 'logs'), { recursive: true });
-// Add more subdirectories as needed
-// fs.mkdirSync(path.join(DATA_DIR, 'media'), { recursive: true });
+fs.mkdirSync(path.join(DATA_DIR, 'models'), { recursive: true });
 console.log('  - logs/');
+console.log('  - models/');
 
 // 2. Create default config if not exists
 const configPath = path.join(DATA_DIR, 'config.json');
 if (!fs.existsSync(configPath)) {
   console.log('\nCreating default config.json...');
-  fs.writeFileSync(configPath, JSON.stringify(INITIAL_CONFIG, null, 2));
+  fs.writeFileSync(configPath, JSON.stringify(INITIAL_CONFIG, null, 2) + '\n', { mode: 0o600 });
   console.log('  - config.json created');
 } else {
   console.log('\nConfig already exists, skipping.');
 }
-
-// 3. Verify required config fields (customize as needed)
-// Example: Check for required API key in config.json
-// const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-// if (!cfg.api_key) {
-//   console.log('\n[!] api_key not found in config.json');
-// }
-
-// Note: PM2 service is started by Claude after this hook completes.
 
 console.log('\n[post-install] Complete!');

@@ -35,6 +35,18 @@ if (fs.existsSync(configPath)) {
       migrations.push('Added enabled field');
     }
 
+    if (!config.dataDir) {
+      config.dataDir = DATA_DIR;
+      migrated = true;
+      migrations.push('Added dataDir field');
+    }
+
+    if (!config.indexPath) {
+      config.indexPath = path.join(DATA_DIR, 'index.sqlite');
+      migrated = true;
+      migrations.push('Added indexPath field');
+    }
+
     // Add more migrations as needed for future versions
     // Migration N: Example
     // if (config.newField === undefined) {

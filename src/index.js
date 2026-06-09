@@ -30,21 +30,13 @@ watchConfig((newConfig) => {
   }
 });
 
-// Main component logic
 async function main() {
-  // TODO: Implement your component logic here
-  //
-  // Communication components: set up platform SDK, listen for events, forward to C4
-  // Capability components: start HTTP server or other service interface
-  // Utility components: run task and exit (remove the keepalive below)
-
-  console.log(`[recall] Running`);
+  console.log('[recall] R1 indexer component ready. Run `zylos-recall index` to build the local chunk index.');
 }
 
 // Graceful shutdown
 function shutdown() {
   console.log(`[recall] Shutting down...`);
-  // TODO: Close connections, stop listeners, cleanup
   process.exit(0);
 }
 
