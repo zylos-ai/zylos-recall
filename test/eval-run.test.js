@@ -125,6 +125,31 @@ test('file-level metrics dedupe multiple chunks from the same source', () => {
   assert.equal(result.ndcgAtK, 1);
 });
 
+test('requiresFilter cases are excluded from the baseline gate but reported separately', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-eval-filter-'));
+  const config = createEvalConfig({ threshold: 0.5, topK: 5, recencyWeight: 0 });
+  config.corpus.roots = [root];
+  const cleanPool = [candidate(root, 'alpha.md', 0.95)];
+  const dirtyPool = [candidate(root, 'alpha.md', 0.95), candidate(root, 'noise.md', 0.8)];
+  const result = await runEval({
+    config,
+    cases: [
+      { id: 'normal', query: 'alpha', expect: [{ source: 'corpus/alpha.md', grade: 3 }], forbid: ['corpus/noise.md'] },
+      { id: 'filt', query: 'alpha', requiresFilter: true, expect: [{ source: 'corpus/alpha.md', grade: 3 }], forbid: ['corpus/noise.md'] }
+    ],
+    candidatePools: new Map([['normal', cleanPool], ['filt', dirtyPool]]),
+    baseline: { maxForbidViolations: 0, meanNdcgAtK: 0 },
+    print: false
+  });
+
+  // The filter case injects forbidden noise, but it must NOT break the gate.
+  assert.equal(result.passed, true);
+  assert.equal(result.summary.cases, 1, 'gating summary counts only non-filter cases');
+  assert.equal(result.summary.forbidViolations, 0, 'filter-case forbid violations are excluded from the gate');
+  assert.equal(result.filterResults.length, 1);
+  assert.deepEqual(result.filterResults[0].forbidViolations, ['corpus/noise.md']);
+});
+
 test('build-index applies explicit and default fixture dates to mtimes before indexing', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-eval-date-'));
   const dated = path.join(root, 'dated.md');
