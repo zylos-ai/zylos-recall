@@ -124,6 +124,7 @@ test('rerank filter gates and orders candidates before free gates', async () => 
   config.filter.provider = 'rerank';
   config.filter.threshold = 0.5;
   config.filter.keepK = 2;
+  config.filter.maxPassageTokens = 128;
   const highCosineText = 'high cosine alpha project mention without the useful answer';
   const bestText = 'best answer alpha project memory with the useful details';
   const lowText = 'low rerank alpha project mention';
@@ -170,7 +171,9 @@ test('rerank filter gates and orders candidates before free gates', async () => 
   assert.equal(rerankLog.kept, 2);
   assert.equal(rerankLog.threshold, 0.5);
   assert.equal(rerankLog.keepK, 2);
+  assert.equal(rerankLog.maxPassageTokens, 128);
   assert.equal(typeof rerankLog.durationMs, 'number');
+  assert.match(result.additionalContext, /best answer alpha project memory with the useful details/);
 });
 
 test('rerank filter fails open when reranker throws', async () => {

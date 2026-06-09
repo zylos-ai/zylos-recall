@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { loadConfig, saveConfig, validateConfig } from '../src/lib/config.js';
+import { DEFAULT_CONFIG, loadConfig, saveConfig, validateConfig } from '../src/lib/config.js';
 
 test('loads defaults when config file is absent', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-config-'));
@@ -17,6 +17,7 @@ test('loads defaults when config file is absent', () => {
   assert.equal(config.filter.provider, 'none');
   assert.equal(config.filter.model, 'Xenova/bge-reranker-base');
   assert.equal(config.filter.dtype, 'q8');
+  assert.equal(config.filter.maxPassageTokens, 128);
 });
 
 test('rejects unsupported v1 providers', () => {
@@ -46,6 +47,7 @@ test('accepts rerank filter config and rejects invalid rerank values', () => {
       dtype: 'q8',
       threshold: 0.5,
       keepK: 5,
+      maxPassageTokens: 128,
       cacheDir: '/tmp/models'
     }
   });
@@ -62,6 +64,24 @@ test('accepts rerank filter config and rejects invalid rerank values', () => {
     retrieval: { ...valid.retrieval, topK: 3 },
     filter: { ...valid.filter, keepK: 4 }
   }), /filter\.keepK must be <= retrieval\.topK/);
+
+  assert.throws(() => validateConfig({
+    ...valid,
+    filter: { ...valid.filter, maxPassageTokens: 63 }
+  }), /filter\.maxPassageTokens/);
+
+  assert.throws(() => validateConfig({
+    ...valid,
+    filter: { ...valid.filter, maxPassageTokens: 257 }
+  }), /filter\.maxPassageTokens/);
+});
+
+test('validates rerank passage cap even when filter is disabled', () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  config.filter.provider = 'none';
+  config.filter.maxPassageTokens = 512;
+
+  assert.throws(() => validateConfig(config), /filter\.maxPassageTokens/);
 });
 
 test('saves config atomically with normalized paths', () => {

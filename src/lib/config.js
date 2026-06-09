@@ -92,6 +92,7 @@ export const DEFAULT_CONFIG = Object.freeze({
     dtype: 'q8',
     threshold: 0.5,
     keepK: 5,
+    maxPassageTokens: 128,
     cacheDir: path.join(DATA_DIR, 'models')
   }
 });
@@ -191,6 +192,9 @@ export function validateConfig(value) {
   }
   if (!['none', 'rerank'].includes(value.filter?.provider)) {
     errors.push('filter.provider must be one of: none, rerank');
+  }
+  if (!Number.isInteger(value.filter?.maxPassageTokens) || value.filter.maxPassageTokens < 64 || value.filter.maxPassageTokens > 256) {
+    errors.push('filter.maxPassageTokens must be an integer between 64 and 256');
   }
   if (value.filter?.provider === 'rerank') {
     if (typeof value.filter.model !== 'string' || !value.filter.model.trim()) {

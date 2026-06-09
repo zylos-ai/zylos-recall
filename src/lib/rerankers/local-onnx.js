@@ -49,7 +49,8 @@ export class LocalOnnxReranker {
     const inputs = tokenizer(queries, {
       text_pair: passages.map(passage => String(passage || '')),
       padding: true,
-      truncation: true
+      truncation: true,
+      max_length: this.config.maxPassageTokens
     });
     const outputs = await model(inputs);
     return scoresFromLogits(outputs.logits);
