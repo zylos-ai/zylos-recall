@@ -14,6 +14,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { registerRecallHook } from '../src/lib/settings-hooks.js';
 
 const HOME = process.env.HOME;
 const DATA_DIR = path.join(HOME, 'zylos/components/recall');
@@ -89,6 +90,13 @@ const INITIAL_CONFIG = {
     port: 37537,
     timeoutMs: 800
   },
+  freshness: {
+    enabled: true,
+    watch: true,
+    sweep: true,
+    debounceMs: 1000,
+    sweepIntervalMs: 300000
+  },
   filter: {
     provider: 'none'
   }
@@ -112,5 +120,10 @@ if (!fs.existsSync(configPath)) {
 } else {
   console.log('\nConfig already exists, skipping.');
 }
+
+// 3. Register UserPromptSubmit hook
+console.log('\nRegistering UserPromptSubmit hook...');
+registerRecallHook();
+console.log('  - recall retrieve hook registered');
 
 console.log('\n[post-install] Complete!');

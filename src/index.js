@@ -9,6 +9,8 @@ import { getConfig, watchConfig, DATA_DIR } from './lib/config.js';
 import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { createEmbedder } from './lib/embedders/index.js';
+import { FreshnessManager } from './lib/freshness.js';
+import { appendRetrievalLog } from './lib/retrieval-log.js';
 import { retrieveMemory } from './lib/retriever.js';
 import { ChunkStore } from './lib/store.js';
 
@@ -16,6 +18,7 @@ let config = null;
 let server = null;
 let embedder = null;
 let store = null;
+let freshness = null;
 
 export async function main() {
   console.log('[recall] Starting...');
@@ -49,6 +52,8 @@ export async function startRuntime(activeConfig, options = {}) {
   store.initialize(embedder);
   console.log('[recall] Warming embedder...');
   await embedder.embed(['warmup'], 'query');
+  freshness = options.freshness || new FreshnessManager(activeConfig, { embedder, store });
+  await freshness.start();
 
   server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -78,6 +83,10 @@ export async function restartRuntime(activeConfig, options = {}) {
 }
 
 export async function stopRuntime() {
+  if (freshness) {
+    await freshness.stop();
+    freshness = null;
+  }
   if (server) {
     await new Promise(resolve => server.close(resolve));
     server = null;
@@ -89,6 +98,7 @@ export async function stopRuntime() {
 }
 
 export async function handleRetrieve(req, res) {
+  const started = Date.now();
   try {
     const body = await readJson(req);
     const query = String(body.query || '').trim();
@@ -97,6 +107,16 @@ export async function handleRetrieve(req, res) {
       return;
     }
     const result = await retrieveMemory(config, query, { embedder, store, storeInitialized: true });
+    try {
+      appendRetrievalLog(config, {
+        query,
+        selected: result.selected,
+        durationMs: Date.now() - started,
+        injected: Boolean(result.additionalContext)
+      });
+    } catch (err) {
+      console.error(`[recall] retrieval log failed: ${err.message}`);
+    }
     sendJson(res, 200, {
       ok: true,
       additionalContext: result.additionalContext,

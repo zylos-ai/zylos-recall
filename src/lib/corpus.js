@@ -65,3 +65,16 @@ export function collectCorpusChunks(config) {
   files.sort((a, b) => a.source.localeCompare(b.source));
   return { chunks, files };
 }
+
+export function collectCorpusSignature(config) {
+  const files = [];
+  for (const entry of walkCorpusFiles(config)) {
+    files.push({
+      source: path.relative(entry.rootPath, entry.filePath).split(path.sep).join('/'),
+      mtimeMs: Math.floor(entry.stats.mtimeMs),
+      size: entry.stats.size
+    });
+  }
+  files.sort((a, b) => a.source.localeCompare(b.source));
+  return JSON.stringify(files);
+}

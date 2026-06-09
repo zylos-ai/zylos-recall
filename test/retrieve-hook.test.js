@@ -20,6 +20,7 @@ test('extracts prompts from argv, hook json, and raw stdin', () => {
 
 test('skips trivial and control prompts', () => {
   assert.equal(isSubstantive('hello'), false);
+  assert.equal(isSubstantive('fix the bug'), true);
   assert.equal(isSubstantive('Heartbeat check 123'), false);
   assert.equal(isSubstantive('[scheduled task] run now'), false);
   assert.equal(isSubstantive('please recall alpha project details'), true);

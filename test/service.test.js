@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import { DEFAULT_CONFIG } from '../src/lib/config.js';
 import { startRuntime, stopRuntime } from '../src/index.js';
@@ -94,10 +97,14 @@ test('service fails open with empty context when retrieval throws', async () => 
 });
 
 function testConfig() {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-service-'));
   const config = structuredClone(DEFAULT_CONFIG);
+  config.dataDir = dataDir;
+  config.indexPath = path.join(dataDir, 'index.sqlite');
   config.service.host = '127.0.0.1';
   config.service.port = 0;
   config.retrieval.threshold = 0.1;
   config.retrieval.recencyWeight = 0;
+  config.freshness.enabled = false;
   return config;
 }
