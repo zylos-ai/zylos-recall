@@ -10,6 +10,8 @@ test('loads defaults when config file is absent', () => {
   const config = loadConfig(path.join(dir, 'missing.json'));
   assert.equal(config.enabled, true);
   assert.equal(config.embedder.provider, 'local-onnx');
+  assert.equal(config.freshness.enabled, true);
+  assert.equal(config.freshness.sweepIntervalMs, 300000);
   assert.deepEqual(config.filter, { provider: 'none' });
 });
 

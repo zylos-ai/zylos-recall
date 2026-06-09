@@ -68,6 +68,13 @@ Edit `~/zylos/components/recall/config.json`:
     "port": 37537,
     "timeoutMs": 800
   },
+  "freshness": {
+    "enabled": true,
+    "watch": true,
+    "sweep": true,
+    "debounceMs": 1000,
+    "sweepIntervalMs": 300000
+  },
   "filter": { "provider": "none" }
 }
 ```
@@ -88,9 +95,15 @@ npx zylos-recall retrieve "discord voice channel decisions"
 npm start
 ```
 
-R2 provides the retrieval pipeline, warm service, and fail-open hook client
-(`src/retrieve.js`). R3 will register the `UserPromptSubmit` hook and freshness
-triggers during install/upgrade.
+The install/upgrade hooks register `src/retrieve.js` as a Claude
+`UserPromptSubmit` hook. The hook client fails open and only emits
+`additionalContext` when the service returns a non-empty `<retrieved-memory>`
+block.
+
+Freshness is maintained by indexing on service startup, debounced filesystem
+watching where recursive watch is supported, and a periodic corpus mtime/size
+sweep fallback. Retrieval metadata is appended to
+`~/zylos/components/recall/logs/retrieval.jsonl` without chunk text.
 
 ## Built by Coco
 

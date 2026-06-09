@@ -82,6 +82,13 @@ export const DEFAULT_CONFIG = Object.freeze({
     port: 37537,
     timeoutMs: 800
   },
+  freshness: {
+    enabled: true,
+    watch: true,
+    sweep: true,
+    debounceMs: 1000,
+    sweepIntervalMs: 300000
+  },
   filter: {
     provider: 'none'
   }
@@ -169,6 +176,15 @@ export function validateConfig(value) {
   }
   if (!Number.isInteger(value.service?.timeoutMs) || value.service.timeoutMs <= 0) {
     errors.push('service.timeoutMs must be a positive integer');
+  }
+  if (typeof value.freshness?.enabled !== 'boolean') {
+    errors.push('freshness.enabled must be boolean');
+  }
+  if (!Number.isInteger(value.freshness?.debounceMs) || value.freshness.debounceMs < 0) {
+    errors.push('freshness.debounceMs must be a non-negative integer');
+  }
+  if (!Number.isInteger(value.freshness?.sweepIntervalMs) || value.freshness.sweepIntervalMs < 0) {
+    errors.push('freshness.sweepIntervalMs must be a non-negative integer');
   }
   if (value.filter?.provider !== 'none') {
     errors.push('filter.provider must be none for v1');

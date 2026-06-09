@@ -19,6 +19,7 @@ lifecycle:
     post-install: hooks/post-install.js
     pre-upgrade: hooks/pre-upgrade.js
     post-upgrade: hooks/post-upgrade.js
+    pre-uninstall: hooks/pre-uninstall.js
   preserve:
     - config.json
     - data/
@@ -63,6 +64,7 @@ zylos-recall query "what did Felix decide about Discord VC?"
 zylos-recall retrieve "what did Felix decide about Discord VC?"
 ```
 
-R2 runs the configured `denseRetrieve -> freeGates -> assemble` pipeline and
-can emit `<retrieved-memory>` blocks. Hook registration and freshness triggers
-remain deferred to R3.
+The service runs the configured `denseRetrieve -> freeGates -> assemble`
+pipeline and emits `<retrieved-memory>` blocks through the registered
+`UserPromptSubmit` hook. Freshness is maintained by startup indexing,
+filesystem-change debounce where supported, and periodic corpus sweeps.

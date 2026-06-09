@@ -74,10 +74,11 @@ export async function runRetrieveHook(options = {}) {
 
 export function isSubstantive(prompt) {
   const trimmed = String(prompt || '').trim();
-  if (trimmed.length < 12) return false;
   if (/heartbeat check/i.test(trimmed)) return false;
   if (/^\s*(meanwhile,\s*)?context usage at/i.test(trimmed)) return false;
   if (/^\s*\[?scheduled task/i.test(trimmed)) return false;
+  const words = trimmed.match(/[A-Za-z0-9_]+(?:[-'][A-Za-z0-9_]+)?/g) || [];
+  if (trimmed.length < 12 && words.length < 3) return false;
   return true;
 }
 

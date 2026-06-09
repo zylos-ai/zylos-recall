@@ -14,6 +14,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { registerRecallHook } from '../src/lib/settings-hooks.js';
 
 const HOME = process.env.HOME;
 const DATA_DIR = path.join(HOME, 'zylos/components/recall');
@@ -47,6 +48,37 @@ if (fs.existsSync(configPath)) {
       migrations.push('Added indexPath field');
     }
 
+    if (!config.freshness) {
+      config.freshness = {};
+      migrated = true;
+      migrations.push('Added freshness config');
+    }
+    if (config.freshness.enabled === undefined) {
+      config.freshness.enabled = true;
+      migrated = true;
+      migrations.push('Added freshness.enabled');
+    }
+    if (config.freshness.watch === undefined) {
+      config.freshness.watch = true;
+      migrated = true;
+      migrations.push('Added freshness.watch');
+    }
+    if (config.freshness.sweep === undefined) {
+      config.freshness.sweep = true;
+      migrated = true;
+      migrations.push('Added freshness.sweep');
+    }
+    if (config.freshness.debounceMs === undefined) {
+      config.freshness.debounceMs = 1000;
+      migrated = true;
+      migrations.push('Added freshness.debounceMs');
+    }
+    if (config.freshness.sweepIntervalMs === undefined) {
+      config.freshness.sweepIntervalMs = 300000;
+      migrated = true;
+      migrations.push('Added freshness.sweepIntervalMs');
+    }
+
     // Add more migrations as needed for future versions
     // Migration N: Example
     // if (config.newField === undefined) {
@@ -70,5 +102,9 @@ if (fs.existsSync(configPath)) {
 } else {
   console.log('No config file found, skipping migrations.');
 }
+
+console.log('\nRegistering UserPromptSubmit hook...');
+registerRecallHook();
+console.log('  - recall retrieve hook registered');
 
 console.log('\n[post-upgrade] Complete!');

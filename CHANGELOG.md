@@ -29,12 +29,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Warm local HTTP service with `/health` and fail-open `/retrieve` endpoint.
 - Fail-open `src/retrieve.js` hook client with an 800ms default timeout.
 - `zylos-recall retrieve` CLI command for gated retrieval smoke checks.
+- R3 `UserPromptSubmit` hook registration during install/upgrade and hook
+  cleanup during uninstall.
+- Freshness manager with startup indexing, debounced filesystem refresh where
+  supported, and periodic corpus mtime/size sweep fallback.
+- Retrieval metadata JSONL log with redacted query preview and selected
+  chunk IDs/scores, without chunk text.
 
 ### Changed
 - Chunk IDs are stable against unrelated section insertion/removal by deriving
   IDs from source, section slug, duplicate-heading occurrence, and part index.
 - Incremental indexing preserves vector row IDs for unchanged chunks instead of
   deleting and reinserting embeddings.
+- Short substantive prompts with at least three words, such as `fix the bug`,
+  are no longer skipped by the hook client.
 
 ### Upgrade Notes
 
