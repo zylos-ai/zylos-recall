@@ -1,0 +1,30 @@
+{
+  "name": "zylos-recall",
+  "version": "0.1.0",
+  "description": "Proactive memory retrieval (RAG) — surfaces relevant memory into context each turn",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "homepage": "https://github.com/zylos-ai/zylos-recall#readme",
+  "bugs": {
+    "url": "https://github.com/zylos-ai/zylos-recall/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zylos-ai/zylos-recall.git"
+  },
+  "keywords": [
+    "zylos",
+    "recall",
+    "agent"
+  ],
+  "author": "Zylos AI",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {}
+}
