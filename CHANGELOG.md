@@ -5,37 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - 2026-06-09
-
-### Added
-- `zylos-recall inspect` CLI to audit recall utilization by pairing transcript
-  prompts with delivered `<retrieved-memory>` context.
-- Deterministic eval harness with frozen fixtures, golden cases, metric helpers,
-  baseline gate, threshold/recency/topK sweep mode, and filter-target cases.
-- Local cross-encoder rerank filter using q8 `Xenova/bge-reranker-base`,
-  configured with `filter.provider: "rerank"` and the `rerankFilter` pipeline
-  stage.
-- Reranker warm-load and fail-open behavior so retrieval continues without the
-  optional filter when the reranker cannot warm or score a turn.
-- `rerankScore`, rerank stage timings, and passage-cap metadata in retrieval
-  logs without recording chunk text.
-- `filter.maxPassageTokens` with default `128` and validation range `64..256`
-  to cap reranker scorer input while preserving full stored and injected chunks.
-
-### Changed
-- Dense markdown sections now split at semantic sub-boundaries when a section
-  mixes multiple labeled topics, improving retrieval of buried facts.
-- Eval golden coverage now separates baseline gates from filter-target cases so
-  usefulness filtering is measured directly.
-- Reranker passage scoring now applies a cheap pre-tokenizer text slice plus
-  tokenizer `max_length` to keep live K=5 reranking under the hook timeout.
-
-### Upgrade Notes
-
-The rerank filter remains opt-in. Existing installs that explicitly configure
-`retrieval.pipeline` must include `rerankFilter` in that pipeline when enabling
-`filter.provider: "rerank"`.
-
 ## [0.1.0] - 2026-06-09
 
 ### Added
