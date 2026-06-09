@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { buildEvalIndex } from '../eval/build-index.js';
+import { applyFixtureDates, buildEvalIndex } from '../eval/build-index.js';
 import { createEvalConfig } from '../eval/config.js';
-import { runEval } from '../eval/run.js';
+import { runEval, scoreCase } from '../eval/run.js';
 
 class FakeEmbedder {
   id() {
@@ -103,7 +103,42 @@ test('sweep mode re-gates a precomputed candidate pool', async () => {
   assert.equal(sweep.best.threshold, 0.9);
 });
 
-function candidate(root, source, score) {
+test('file-level metrics dedupe multiple chunks from the same source', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-eval-dedupe-'));
+  const result = scoreCase(
+    {
+      id: 'multi-chunk',
+      query: 'alpha details',
+      expect: [{ source: 'corpus/alpha.md', grade: 3 }],
+      forbid: []
+    },
+    [
+      candidate(root, 'alpha.md', 0.95, { id: 'alpha-1' }),
+      candidate(root, 'alpha.md', 0.94, { id: 'alpha-2' })
+    ],
+    createEvalConfig({ threshold: 0.1, topK: 5, recencyWeight: 0 }),
+    { k: 5 }
+  );
+
+  assert.deepEqual(result.ranked, ['corpus/alpha.md']);
+  assert.equal(result.recallAtK, 1);
+  assert.equal(result.ndcgAtK, 1);
+});
+
+test('build-index applies explicit and default fixture dates to mtimes before indexing', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-eval-date-'));
+  const dated = path.join(root, 'dated.md');
+  const undated = path.join(root, 'undated.md');
+  fs.writeFileSync(dated, '# Dated\n\ndate: 2026-05-20\n\nOld recall design.');
+  fs.writeFileSync(undated, '# Undated\n\nStable but undated fixture.');
+
+  applyFixtureDates([root]);
+
+  assert.equal(new Date(fs.statSync(dated).mtimeMs).toISOString().slice(0, 10), '2026-05-20');
+  assert.equal(new Date(fs.statSync(undated).mtimeMs).toISOString().slice(0, 10), '2026-01-01');
+});
+
+function candidate(root, source, score, overrides = {}) {
   const filePath = path.join(root, source);
   fs.writeFileSync(filePath, 'fixture');
   const mtime = Math.floor(fs.statSync(filePath).mtimeMs);
@@ -116,6 +151,7 @@ function candidate(root, source, score) {
     mtime,
     tokenCount: 2,
     metadata: { date: '2026-06-09', type: 'doc' },
-    score
+    score,
+    ...overrides
   };
 }

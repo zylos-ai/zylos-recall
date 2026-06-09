@@ -55,29 +55,36 @@ export async function collectCandidatePools(cases, config, options = {}) {
 
 export function scoreCase(testCase, candidates, baseConfig, options = {}) {
   const k = options.k || 5;
-  const ranked = sortCandidates(candidates).map(candidate => sourceForGolden(candidate.source));
+  const ranked = dedupeBySource(sortCandidates(candidates)).map(candidate => sourceForGolden(candidate.source));
   const relevantSet = new Set(testCase.expect.map(item => item.source));
   const gradeMap = new Map(testCase.expect.map(item => [item.source, item.grade]));
   const selected = applyGates(candidates, baseConfig, { now: options.now }).map(candidate => ({
     ...candidate,
     source: sourceForGolden(candidate.source)
   }));
-  const selectedSources = selected.map(candidate => candidate.source);
+  const selectedSources = dedupeSources(selected.map(candidate => candidate.source));
   const forbid = new Set(testCase.forbid || []);
   const forbidViolations = selectedSources.filter(source => forbid.has(source));
   const expectedInjected = selectedSources.filter(source => relevantSet.has(source));
+  const shouldHit = relevantSet.size > 0;
+  const injectedRecall = shouldHit ? expectedInjected.length / relevantSet.size : 0;
+  const injectedPrecision = selectedSources.length ? expectedInjected.length / selectedSources.length : 0;
 
   return {
     id: testCase.id,
     query: testCase.query,
+    shouldHit,
     ranked,
     selected,
     precisionAtK: precisionAtK(ranked, relevantSet, k),
     recallAtK: recallAtK(ranked, relevantSet, k),
     mrr: mrr(ranked, relevantSet),
     ndcgAtK: ndcgAtK(ranked, gradeMap, k),
-    injectedPrecision: selectedSources.length ? expectedInjected.length / selectedSources.length : 0,
+    injectedRecall,
+    injectedPrecision,
+    injectedF1: f1(injectedPrecision, injectedRecall),
     injectedHit: expectedInjected.length > 0,
+    quiet: !shouldHit && selectedSources.length === 0,
     forbidViolations
   };
 }
@@ -100,13 +107,26 @@ export function applyGates(candidates, baseConfig, options = {}) {
 }
 
 export function summarize(caseResults, k) {
+  const shouldHit = caseResults.filter(result => result.shouldHit);
+  const expectEmpty = caseResults.filter(result => !result.shouldHit);
   return {
     cases: caseResults.length,
+    shouldHitCases: shouldHit.length,
+    expectEmptyCases: expectEmpty.length,
     k,
-    meanPrecisionAtK: mean(caseResults.map(result => result.precisionAtK)),
-    meanRecallAtK: mean(caseResults.map(result => result.recallAtK)),
-    meanMrr: mean(caseResults.map(result => result.mrr)),
-    meanNdcgAtK: mean(caseResults.map(result => result.ndcgAtK)),
+    meanPrecisionAtK: mean(shouldHit.map(result => result.precisionAtK)),
+    meanRecallAtK: mean(shouldHit.map(result => result.recallAtK)),
+    meanMrr: mean(shouldHit.map(result => result.mrr)),
+    meanNdcgAtK: mean(shouldHit.map(result => result.ndcgAtK)),
+    injectedPrecision: mean(shouldHit.map(result => result.injectedPrecision)),
+    injectedRecall: mean(shouldHit.map(result => result.injectedRecall)),
+    injectedF1: f1(
+      mean(shouldHit.map(result => result.injectedPrecision)),
+      mean(shouldHit.map(result => result.injectedRecall))
+    ),
+    quietAccuracy: expectEmpty.length
+      ? expectEmpty.filter(result => result.quiet).length / expectEmpty.length
+      : 1,
     forbidViolations: caseResults.reduce((sum, result) => sum + result.forbidViolations.length, 0),
     injectedHits: caseResults.filter(result => result.injectedHit).length
   };
@@ -140,8 +160,10 @@ export function runSweep(cases, baseConfig, candidatePools, options = {}) {
   }
   rows.sort((a, b) =>
     a.forbidViolations - b.forbidViolations ||
-    b.meanNdcgAtK - a.meanNdcgAtK ||
-    b.meanRecallAtK - a.meanRecallAtK
+    b.quietAccuracy - a.quietAccuracy ||
+    b.injectedF1 - a.injectedF1 ||
+    b.injectedRecall - a.injectedRecall ||
+    b.meanNdcgAtK - a.meanNdcgAtK
   );
   return { rows, best: rows[0] || null };
 }
@@ -200,6 +222,22 @@ function sortCandidates(candidates) {
   );
 }
 
+function dedupeBySource(candidates) {
+  const seen = new Set();
+  const deduped = [];
+  for (const candidate of candidates) {
+    const source = sourceForGolden(candidate.source);
+    if (seen.has(source)) continue;
+    seen.add(source);
+    deduped.push(candidate);
+  }
+  return deduped;
+}
+
+function dedupeSources(sources) {
+  return [...new Set(sources)];
+}
+
 function sourceForGolden(source) {
   return source.startsWith('corpus/') ? source : `corpus/${source}`;
 }
@@ -208,48 +246,60 @@ function passesBaseline(summary, baseline) {
   if (!baseline) return true;
   if (summary.forbidViolations > (baseline.maxForbidViolations ?? 0)) return false;
   if (summary.meanNdcgAtK < (baseline.meanNdcgAtK ?? 0)) return false;
+  if (summary.injectedF1 < (baseline.injectedF1 ?? 0)) return false;
+  if (summary.quietAccuracy < (baseline.quietAccuracy ?? 0)) return false;
   return true;
 }
 
 function printReport(caseResults, summary, baseline) {
-  console.log('id\tP@k\tR@k\tMRR\tnDCG@k\tinjected\tforbid');
+  console.log('id\ttype\tP@k\tR@k\tMRR\tnDCG@k\tinjR\tinjP\tquiet\tforbid');
   for (const result of caseResults) {
     console.log([
       result.id,
+      result.shouldHit ? 'hit' : 'empty',
       format(result.precisionAtK),
       format(result.recallAtK),
       format(result.mrr),
       format(result.ndcgAtK),
-      result.injectedHit ? 'hit' : 'miss',
+      format(result.injectedRecall),
+      format(result.injectedPrecision),
+      result.quiet ? 'yes' : '-',
       result.forbidViolations.join(',') || '-'
     ].join('\t'));
   }
   console.log('');
-  console.log(`summary\tcases=${summary.cases}\tmeanP@${summary.k}=${format(summary.meanPrecisionAtK)}\tmeanR@${summary.k}=${format(summary.meanRecallAtK)}\tmeanMRR=${format(summary.meanMrr)}\tmeanNDCG@${summary.k}=${format(summary.meanNdcgAtK)}\tforbid=${summary.forbidViolations}`);
+  console.log(`summary\tcases=${summary.cases}\tshouldHit=${summary.shouldHitCases}\texpectEmpty=${summary.expectEmptyCases}\tmeanP@${summary.k}=${format(summary.meanPrecisionAtK)}\tmeanR@${summary.k}=${format(summary.meanRecallAtK)}\tmeanMRR=${format(summary.meanMrr)}\tmeanNDCG@${summary.k}=${format(summary.meanNdcgAtK)}\tinjectedF1=${format(summary.injectedF1)}\tquiet=${format(summary.quietAccuracy)}\tforbid=${summary.forbidViolations}`);
   if (baseline) {
-    console.log(`baseline\tmeanNDCG@${summary.k}>=${baseline.meanNdcgAtK}\tforbid<=${baseline.maxForbidViolations ?? 0}`);
+    console.log(`baseline\tmeanNDCG@${summary.k}>=${baseline.meanNdcgAtK}\tinjectedF1>=${baseline.injectedF1 ?? 0}\tquiet>=${baseline.quietAccuracy ?? 0}\tforbid<=${baseline.maxForbidViolations ?? 0}`);
   }
 }
 
 function printSweep(sweep) {
-  console.log('threshold\trecencyWeight\ttopK\tmeanNDCG@k\tmeanR@k\tforbid');
+  console.log('threshold\trecencyWeight\ttopK\tinjF1\tinjR\tinjP\tquiet\tmeanNDCG@k\tforbid');
   for (const row of sweep.rows) {
     console.log([
       row.threshold,
       row.recencyWeight,
       row.topK,
+      format(row.injectedF1),
+      format(row.injectedRecall),
+      format(row.injectedPrecision),
+      format(row.quietAccuracy),
       format(row.meanNdcgAtK),
-      format(row.meanRecallAtK),
       row.forbidViolations
     ].join('\t'));
   }
   if (sweep.best) {
-    console.log(`best\tthreshold=${sweep.best.threshold}\trecencyWeight=${sweep.best.recencyWeight}\ttopK=${sweep.best.topK}\tmeanNDCG@${sweep.best.k}=${format(sweep.best.meanNdcgAtK)}`);
+    console.log(`best\tthreshold=${sweep.best.threshold}\trecencyWeight=${sweep.best.recencyWeight}\ttopK=${sweep.best.topK}\tinjectedF1=${format(sweep.best.injectedF1)}\tquiet=${format(sweep.best.quietAccuracy)}\tmeanNDCG@${sweep.best.k}=${format(sweep.best.meanNdcgAtK)}`);
   }
 }
 
 function format(value) {
   return Number(value).toFixed(3);
+}
+
+function f1(precision, recall) {
+  return precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
 }
 
 function loadJson(filePath) {

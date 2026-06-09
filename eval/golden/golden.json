@@ -73,9 +73,9 @@
     "id": "context-disambiguation-forward",
     "query": "yes that one",
     "context": "We were discussing what embedder recall chose and why multilingual support matters.",
-    "expect": [{ "source": "corpus/recall-design.md", "grade": 1 }],
+    "expect": [],
+    "contextExpect": [{ "source": "corpus/recall-design.md", "grade": 1 }],
     "forbid": ["corpus/zylos-discord-README.md"],
-    "notes": "forward-compatible case for future query-side summarizer; deterministic baseline may miss"
+    "notes": "forward-compatible case for future query-side summarizer; deterministic baseline should stay quiet"
   }
 ]
-

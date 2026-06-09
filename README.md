@@ -122,8 +122,8 @@ appended to `~/zylos/components/recall/logs/retrieval.jsonl` without chunk text.
 
 The deterministic eval harness lives in `eval/`. It builds an eval-only index
 from frozen fixtures, runs golden query cases through the real retrieval path,
-reports P@k/Recall@k/MRR/nDCG, and can sweep threshold/recency/topK without
-re-embedding each grid point.
+reports ranker-ceiling P@k/Recall@k/MRR/nDCG plus gated injection/quiet metrics,
+and can sweep threshold/recency/topK without re-embedding each grid point.
 
 ```bash
 node eval/build-index.js

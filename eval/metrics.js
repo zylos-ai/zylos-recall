@@ -1,6 +1,6 @@
 export function precisionAtK(ranked, relevantSet, k) {
-  const top = ranked.slice(0, k);
   if (k <= 0) return 0;
+  const top = ranked.slice(0, k);
   return top.filter(source => relevantSet.has(source)).length / k;
 }
 
@@ -34,4 +34,3 @@ export function mean(values) {
 function gain(grade, index) {
   return (2 ** grade - 1) / Math.log2(index + 2);
 }
-

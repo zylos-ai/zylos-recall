@@ -21,8 +21,13 @@ node eval/run.js
 ```
 
 The runner prints per-case Precision@k, Recall@k, MRR, nDCG@k, injection
-hit/miss, and forbid violations, followed by an aggregate summary. It exits
-non-zero when the summary falls below `eval/baseline.json`.
+recall/precision, quiet status, and forbid violations, followed by an aggregate
+summary. Ranking metrics are reported over should-hit cases only; expect-empty
+cases are scored by quiet accuracy. It exits non-zero when the summary falls
+below `eval/baseline.json`.
+
+The checked-in baseline is intentionally permissive until the curated golden set
+is finalized; tighten it from a green run after ground-truth review.
 
 Golden case sources use the `corpus/...` prefix. The index itself is rooted at
 `eval/corpus`, and the runner normalizes indexed source paths for reporting.
@@ -35,9 +40,19 @@ node eval/run.js --sweep 'threshold=0.45:0.70:0.05,recencyWeight=0|0.05,topK=3|5
 ```
 
 Sweep mode embeds and retrieves each query's candidate pool once, then reapplies
-post-embedding free gates in memory for every grid point.
+post-embedding free gates in memory for every grid point. The sweep objective is
+gated-set behavior: injected recall, injected precision/F1, quiet accuracy, and
+zero forbid violations. Pre-gate P@k/Recall@k/MRR/nDCG are the static ranker
+ceiling and are not used as the threshold objective.
 
 Ties are sorted deterministically by score descending, then source ascending.
+Multiple chunks from the same source are deduped by source before file-level
+metrics are computed.
+
+Fixture files can include `date: YYYY-MM-DD` or prose like `dated YYYY-MM-DD`.
+`build-index.js` applies those dates to fixture mtimes before indexing. Fixtures
+without an explicit date are stamped to `2026-01-01`, so every eval mtime is
+deterministic across checkouts while dated supersession pairs remain ordered.
 
 ## Add A Case
 

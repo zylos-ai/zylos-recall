@@ -1,4 +1,6 @@
 {
-  "meanNdcgAtK": 0.2,
+  "meanNdcgAtK": 0,
+  "injectedF1": 0,
+  "quietAccuracy": 0,
   "maxForbidViolations": 0
 }

@@ -10,6 +10,7 @@ test('precision, recall, and MRR handle hits and misses', () => {
   assert.equal(recallAtK(ranked, relevant, 2), 0.5);
   assert.equal(mrr(ranked, relevant), 0.5);
   assert.equal(mrr(ranked, new Set(['z'])), 0);
+  assert.equal(precisionAtK(ranked, relevant, 0), 0);
 });
 
 test('nDCG uses graded gains and returns zero for all-miss cases', () => {
@@ -26,4 +27,3 @@ test('nDCG uses graded gains and returns zero for all-miss cases', () => {
   assert.equal(ndcgAtK(['x', 'y'], gradeMap, 2), 0);
   assert.equal(ndcgAtK(['x', 'y'], new Map(), 2), 0);
 });
-
