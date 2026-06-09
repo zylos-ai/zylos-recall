@@ -120,6 +120,41 @@ test('splits oversized dense bullet sections at semantic list boundaries', () =>
   assert.doesNotMatch(conversation.text, /Outbound/);
 });
 
+test('splits dense multi-topic sections even when below max tokens', () => {
+  const stats = { mtimeMs: Date.parse('2026-06-09T00:00:00Z') };
+  const text = `### zylos-ms-teams Omnibus Entry
+- **Status:** active public component with durable release state and owner-facing operational notes.
+- **Auth:** custom JWT validation with pre-parse rejection and tenant-aware credential handling.
+- **Conversation store:** file-locking for concurrency, a 1000-entry cap, LRU eviction, and 365-day retention limits.
+  - Stored conversation references keep the service URL for follow-up replies.
+- **Admin CLI:** add-team, remove-team, set-mention, and list-teams commands for operators.
+- **Outbound:** group sends use a conversation-specific service URL from the stored reference.
+- **Known issues:** legacy-domain DNS parking and reaction indicators still need catalog identifiers.`;
+  const chunks = chunkMarkdownDocument({
+    filePath: '/tmp/zylos/memory/reference/projects.md',
+    rootPath: '/tmp/zylos',
+    text,
+    stats
+  }, {
+    targetTokens: 24,
+    minTokens: 8,
+    maxTokens: 500,
+    overlapRatio: 0.15
+  });
+
+  assert.ok(chunks.length > 1, 'dense multi-topic section should split before max-token fallback');
+  assert.ok(chunks.every(chunk => chunk.tokenCount < 500), 'test fixture must stay below maxTokens');
+  assert.equal(chunks.some(chunk => chunk.text === text), false, 'under-max section should not remain one diluted chunk');
+
+  const conversation = chunks.find(chunk => chunk.text.includes('Conversation store'));
+  assert.ok(conversation, 'buried conversation-store fact should be indexed');
+  assert.match(conversation.text, /1000-entry cap/);
+  assert.match(conversation.text, /365-day retention/);
+  assert.match(conversation.text, /Stored conversation references/);
+  assert.doesNotMatch(conversation.text, /Admin CLI/);
+  assert.doesNotMatch(conversation.text, /Outbound/);
+});
+
 test('keeps small atomic sections unchanged', () => {
   const stats = { mtimeMs: Date.parse('2026-06-09T00:00:00Z') };
   const text = `### Atomic Decision

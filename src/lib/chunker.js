@@ -42,7 +42,7 @@ function splitMarkdownSections(text) {
   return sections;
 }
 
-function splitOversizedSection(section, options) {
+function splitSemanticSection(section, options) {
   const maxTokens = options.maxTokens;
   const units = semanticUnits(section.lines);
   const chunks = [];
@@ -104,6 +104,21 @@ function splitOversizedSection(section, options) {
 
   flushPending({ final: true });
   return chunks.filter(Boolean);
+}
+
+function shouldSplitSectionSemantically(section, sectionTokens, options) {
+  if (sectionTokens > options.maxTokens) return true;
+
+  let topLevelListItems = 0;
+  let boldLabels = 0;
+
+  for (const line of section.lines) {
+    if (isTopLevelListItem(line)) topLevelListItems += 1;
+    if (isBoldLabelBoundary(line)) boldLabels += 1;
+  }
+
+  if (boldLabels >= 2 && topLevelListItems >= 3) return true;
+  return topLevelListItems >= 3 && sectionTokens > options.targetTokens;
 }
 
 function semanticUnits(lines) {
@@ -178,10 +193,10 @@ export function chunkMarkdownDocument({ filePath, rootPath, text, stats }, optio
     const sectionText = section.lines.join('\n').trim();
     if (!sectionText) continue;
 
-    const parts =
-      estimateTokens(sectionText) > options.maxTokens
-        ? splitOversizedSection(section, options)
-        : [sectionText];
+    const sectionTokens = estimateTokens(sectionText);
+    const parts = shouldSplitSectionSemantically(section, sectionTokens, options)
+      ? splitSemanticSection(section, options)
+      : [sectionText];
     const sectionSlug = slugify(section.heading);
     const occurrence = sectionOccurrences.get(sectionSlug) || 0;
     sectionOccurrences.set(sectionSlug, occurrence + 1);
