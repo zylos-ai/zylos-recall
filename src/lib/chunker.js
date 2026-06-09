@@ -101,7 +101,7 @@ export function chunkMarkdownDocument({ filePath, rootPath, text, stats }, optio
   const chunks = [];
   const sections = splitMarkdownSections(text);
   const metadata = inferChunkMetadata(filePath, rootPath, stats);
-  let ordinal = 0;
+  const sectionOccurrences = new Map();
 
   for (const section of sections) {
     const sectionText = section.lines.join('\n').trim();
@@ -111,16 +111,18 @@ export function chunkMarkdownDocument({ filePath, rootPath, text, stats }, optio
       estimateTokens(sectionText) > options.maxTokens
         ? splitOversizedSection(section, options)
         : [sectionText];
+    const sectionSlug = slugify(section.heading);
+    const occurrence = sectionOccurrences.get(sectionSlug) || 0;
+    sectionOccurrences.set(sectionSlug, occurrence + 1);
 
     for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
       const part = parts[partIndex].trim();
       const tokenCount = estimateTokens(part);
       if (!part || tokenCount < options.minTokens) continue;
 
-      const sectionSlug = slugify(section.heading);
       const source = path.relative(rootPath, filePath).split(path.sep).join('/');
       chunks.push({
-        id: shortHash(`${source}:${sectionSlug}:${ordinal}`),
+        id: shortHash(`${source}:${sectionSlug}:${occurrence}:${partIndex}`),
         text: part,
         source,
         section: section.heading,
@@ -130,7 +132,6 @@ export function chunkMarkdownDocument({ filePath, rootPath, text, stats }, optio
         embeddings: [],
         metadata
       });
-      ordinal += 1;
     }
   }
 

@@ -20,9 +20,9 @@
 ---
 
 `zylos-recall` is a private capability component for proactive memory retrieval.
-R1 builds the local memory/document index only: it walks an allowlisted corpus,
-splits Markdown by semantic sections, embeds chunks with multilingual-e5-small,
-and stores chunk records plus vectors in SQLite/sqlite-vec.
+It walks an allowlisted Markdown corpus, splits documents by semantic sections,
+embeds chunks with multilingual-e5-small, stores records plus vectors in
+SQLite/sqlite-vec, and serves turn-time retrieval from a warm local service.
 
 ## Install
 
@@ -58,7 +58,15 @@ Edit `~/zylos/components/recall/config.json`:
   "retrieval": {
     "pipeline": ["denseRetrieve", "freeGates", "assemble"],
     "topK": 5,
-    "threshold": 0.35
+    "threshold": 0.35,
+    "maxTotalTokens": 1500,
+    "chunkTokens": 350,
+    "recencyWeight": 0.05
+  },
+  "service": {
+    "host": "127.0.0.1",
+    "port": 37537,
+    "timeoutMs": 800
   },
   "filter": { "provider": "none" }
 }
@@ -72,10 +80,17 @@ npx zylos-recall index
 
 # Smoke query the vector index
 npx zylos-recall query "discord voice channel decisions"
+
+# Run the gated retrieval pipeline and print a <retrieved-memory> block
+npx zylos-recall retrieve "discord voice channel decisions"
+
+# Start the warm local retrieval service
+npm start
 ```
 
-R1 intentionally does not install the prompt hook or inject retrieved memory.
-That arrives in R2/R3 after the retrieval gates and hook path are built.
+R2 provides the retrieval pipeline, warm service, and fail-open hook client
+(`src/retrieve.js`). R3 will register the `UserPromptSubmit` hook and freshness
+triggers during install/upgrade.
 
 ## Built by Coco
 

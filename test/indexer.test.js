@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import Database from 'better-sqlite3';
 import { DEFAULT_CONFIG } from '../src/lib/config.js';
 import { buildIndex, queryIndex } from '../src/lib/indexer.js';
 
@@ -69,10 +70,12 @@ Beta project memory has separate durable details that should be retrievable.`);
 
   const results = await queryIndex(config, 'alpha question', { embedder, topK: 1 });
   assert.equal(results[0].section, 'Alpha');
+  const firstEmbeddingIds = embeddingRows(config.indexPath);
 
   await buildIndex(config, { embedder });
   const passageCalls = embedder.calls.filter(call => call.mode === 'passage');
   assert.equal(passageCalls.length, 1);
+  assert.deepEqual(embeddingRows(config.indexPath), firstEmbeddingIds);
 
   fs.writeFileSync(file, `# Alpha
 
@@ -84,3 +87,12 @@ Beta project memory has separate durable details that should be retrievable.`);
   await buildIndex(config, { embedder });
   assert.equal(embedder.calls.filter(call => call.mode === 'passage').length, 2);
 });
+
+function embeddingRows(indexPath) {
+  const db = new Database(indexPath, { readonly: true });
+  try {
+    return db.prepare('SELECT id, chunk_id, hash FROM embeddings ORDER BY chunk_id, vector_index').all();
+  } finally {
+    db.close();
+  }
+}

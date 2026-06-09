@@ -2,9 +2,9 @@
 name: recall
 version: 0.1.0
 description: >
-  Proactive memory retrieval (RAG) for Zylos memory. R1 provides the local
-  Markdown corpus indexer and sqlite-vec chunk store; turn-time retrieval and
-  hook injection arrive in later slices.
+  Proactive memory retrieval (RAG) for Zylos memory. Provides the local
+  Markdown corpus indexer, sqlite-vec chunk store, warm retrieval service, and
+  fail-open turn-time retrieval client.
 type: capability  # communication | capability | utility
 
 lifecycle:
@@ -60,7 +60,9 @@ dependencies: []
 ```bash
 zylos-recall index
 zylos-recall query "what did Felix decide about Discord VC?"
+zylos-recall retrieve "what did Felix decide about Discord VC?"
 ```
 
-R1 is indexer-only. It does not register `UserPromptSubmit`, run turn-time
-retrieval, or inject `<retrieved-memory>` blocks yet.
+R2 runs the configured `denseRetrieve -> freeGates -> assemble` pipeline and
+can emit `<retrieved-memory>` blocks. Hook registration and freshness triggers
+remain deferred to R3.
