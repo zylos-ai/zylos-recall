@@ -3,12 +3,14 @@
 import { loadConfig } from './lib/config.js';
 import { buildIndex, queryIndex } from './lib/indexer.js';
 import { retrieveMemory } from './lib/retriever.js';
+import { inspectSession, formatInspection } from './inspect.js';
 
 function usage() {
   return `Usage:
   zylos-recall index [--config <path>]
   zylos-recall query [--config <path>] [--top-k <n>] <text>
   zylos-recall retrieve [--config <path>] <text>
+  zylos-recall inspect [--session <id|latest>] [--last <n>] [--full]
 `;
 }
 
@@ -25,6 +27,9 @@ function parseArgs(argv) {
     const value = args.shift();
     if (value === '--config') options.configPath = args.shift();
     else if (value === '--top-k') options.topK = Number(args.shift());
+    else if (value === '--session') options.session = args.shift();
+    else if (value === '--last') options.last = Number(args.shift());
+    else if (value === '--full') options.full = true;
     else if (value === '--help' || value === '-h') options.help = true;
     else positionals.push(value);
   }
@@ -36,6 +41,14 @@ async function main() {
   const { command, options, positionals } = parseArgs(process.argv.slice(2));
   if (options.help || !command) {
     console.log(usage());
+    return;
+  }
+
+  // inspect reads Claude transcripts only — no config/service needed, so it runs
+  // even when recall is disabled.
+  if (command === 'inspect') {
+    const result = inspectSession({ session: options.session });
+    console.log(formatInspection(result, { last: options.last || 12, full: options.full }));
     return;
   }
 
