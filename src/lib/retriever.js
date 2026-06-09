@@ -6,6 +6,7 @@ import path from 'node:path';
 
 export const STAGES = Object.freeze({
   denseRetrieve,
+  rerankFilter,
   freeGates,
   assemble
 });
@@ -21,6 +22,7 @@ export async function retrieveMemory(config, query, options = {}) {
     query: trimmed,
     config,
     embedder,
+    reranker: options.reranker || null,
     store,
     candidates: [],
     selected: [],
@@ -53,6 +55,57 @@ export async function denseRetrieve(ctx) {
   ctx.log.push({ stage: 'denseRetrieve', candidates: ctx.candidates.length });
 }
 
+export async function rerankFilter(ctx) {
+  const started = Date.now();
+  const filter = ctx.config.filter || { provider: 'none' };
+  if (filter.provider !== 'rerank') {
+    ctx.log.push({ stage: 'rerankFilter', enabled: false, candidates: ctx.candidates.length });
+    return;
+  }
+  if (!ctx.reranker) {
+    ctx.log.push({
+      stage: 'rerankFilter',
+      failOpen: true,
+      reason: 'reranker_unavailable',
+      candidates: ctx.candidates.length,
+      durationMs: Date.now() - started
+    });
+    return;
+  }
+
+  try {
+    const input = ctx.candidates;
+    const scores = await ctx.reranker.rerank(ctx.query, input.map(candidate => candidate.text));
+    if (!Array.isArray(scores) || scores.length !== input.length || scores.some(score => !Number.isFinite(Number(score)))) {
+      throw new Error('reranker returned invalid scores');
+    }
+    const rescored = input.map((candidate, index) => ({
+      ...candidate,
+      rerankScore: Number(scores[index])
+    }));
+    ctx.candidates = rescored
+      .filter(candidate => candidate.rerankScore >= filter.threshold)
+      .sort((a, b) => b.rerankScore - a.rerankScore || b.score - a.score || b.mtime - a.mtime)
+      .slice(0, filter.keepK);
+    ctx.log.push({
+      stage: 'rerankFilter',
+      scored: input.length,
+      kept: ctx.candidates.length,
+      threshold: filter.threshold,
+      keepK: filter.keepK,
+      durationMs: Date.now() - started
+    });
+  } catch (err) {
+    ctx.log.push({
+      stage: 'rerankFilter',
+      failOpen: true,
+      reason: err.message,
+      candidates: ctx.candidates.length,
+      durationMs: Date.now() - started
+    });
+  }
+}
+
 export function freeGates(ctx) {
   const threshold = ctx.config.retrieval.threshold;
   const seenHashes = new Set();
@@ -67,9 +120,11 @@ export function freeGates(ctx) {
     seenHashes.add(candidate.hash);
     const ageDays = Math.max(0, (now - candidate.mtime) / 86_400_000);
     const recencyBoost = recencyWeight / (1 + ageDays / 30);
+    const rankScore = candidate.rerankScore ?? candidate.score;
     gated.push({
       ...candidate,
-      finalScore: candidate.score + recencyBoost
+      rankScore,
+      finalScore: rankScore + recencyBoost
     });
   }
 

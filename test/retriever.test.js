@@ -23,8 +23,9 @@ class FakeEmbedder {
 }
 
 class FakeStore {
-  constructor(candidates) {
+  constructor(candidates, { expectedTopK = 5 } = {}) {
     this.candidates = candidates;
+    this.expectedTopK = expectedTopK;
     this.initialized = false;
     this.closed = false;
   }
@@ -35,12 +36,30 @@ class FakeStore {
 
   search(vector, options) {
     assert.deepEqual(vector, [1, 0]);
-    assert.equal(options.topK, 5);
+    assert.equal(options.topK, this.expectedTopK);
     return this.candidates;
   }
 
   close() {
     this.closed = true;
+  }
+}
+
+class FakeReranker {
+  constructor(scoresByText) {
+    this.scoresByText = scoresByText;
+    this.calls = [];
+  }
+
+  async rerank(query, passages) {
+    this.calls.push({ query, passages });
+    return passages.map(passage => this.scoresByText.get(passage) ?? 0);
+  }
+}
+
+class ThrowingReranker {
+  async rerank() {
+    throw new Error('rerank failed');
   }
 }
 
@@ -91,7 +110,94 @@ test('retrieval pipeline gates, ranks, budgets, and assembles context', async ()
   assert.match(result.additionalContext, /\[memory\/reference\/new\.md . 2026-06-09\]/);
   assert.match(result.additionalContext, /\[truncated; read source file for full chunk\]/);
   assert.match(result.additionalContext, /<\/retrieved-memory>$/);
-  assert.deepEqual(result.log.map(entry => entry.stage), ['denseRetrieve', 'freeGates', 'assemble']);
+  assert.deepEqual(result.log.map(entry => entry.stage), ['denseRetrieve', 'rerankFilter', 'freeGates', 'assemble']);
+  assert.equal(result.log.find(entry => entry.stage === 'rerankFilter').enabled, false);
+});
+
+test('rerank filter gates and orders candidates before free gates', async () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  const { root, mtimes } = makeCorpus(['high-cosine', 'best-rerank', 'low-rerank']);
+  config.corpus.roots = [root];
+  config.retrieval.topK = 3;
+  config.retrieval.threshold = 0.1;
+  config.retrieval.recencyWeight = 0;
+  config.filter.provider = 'rerank';
+  config.filter.threshold = 0.5;
+  config.filter.keepK = 2;
+  const highCosineText = 'high cosine alpha project mention without the useful answer';
+  const bestText = 'best answer alpha project memory with the useful details';
+  const lowText = 'low rerank alpha project mention';
+  const reranker = new FakeReranker(new Map([
+    [highCosineText, 0.6],
+    [bestText, 0.95],
+    [lowText, 0.2]
+  ]));
+
+  const result = await retrieveMemory(config, 'alpha project', {
+    embedder: new FakeEmbedder(),
+    reranker,
+    store: new FakeStore([
+      candidate('high-cosine', {
+        hash: 'high-cosine-hash',
+        score: 0.99,
+        mtime: mtimes['high-cosine'],
+        text: highCosineText
+      }),
+      candidate('best-rerank', {
+        hash: 'best-rerank-hash',
+        score: 0.6,
+        mtime: mtimes['best-rerank'],
+        text: bestText
+      }),
+      candidate('low-rerank', {
+        hash: 'low-rerank-hash',
+        score: 0.7,
+        mtime: mtimes['low-rerank'],
+        text: lowText
+      })
+    ], { expectedTopK: 3 })
+  });
+
+  assert.deepEqual(reranker.calls[0], {
+    query: 'alpha project',
+    passages: [highCosineText, bestText, lowText]
+  });
+  assert.deepEqual(result.selected.map(item => item.id), ['best-rerank', 'high-cosine']);
+  assert.equal(result.selected[0].rerankScore, 0.95);
+  assert.equal(result.selected[0].rankScore, 0.95);
+  const rerankLog = result.log.find(entry => entry.stage === 'rerankFilter');
+  assert.equal(rerankLog.scored, 3);
+  assert.equal(rerankLog.kept, 2);
+  assert.equal(rerankLog.threshold, 0.5);
+  assert.equal(rerankLog.keepK, 2);
+  assert.equal(typeof rerankLog.durationMs, 'number');
+});
+
+test('rerank filter fails open when reranker throws', async () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  const { root, mtimes } = makeCorpus(['alpha']);
+  config.corpus.roots = [root];
+  config.retrieval.threshold = 0.1;
+  config.filter.provider = 'rerank';
+  config.filter.threshold = 0.9;
+
+  const result = await retrieveMemory(config, 'alpha project', {
+    embedder: new FakeEmbedder(),
+    reranker: new ThrowingReranker(),
+    store: new FakeStore([
+      candidate('alpha', {
+        hash: 'alpha-hash',
+        score: 0.8,
+        mtime: mtimes.alpha,
+        text: 'alpha project memory survives reranker failure'
+      })
+    ])
+  });
+
+  assert.equal(result.selected.length, 1);
+  const rerankLog = result.log.find(entry => entry.stage === 'rerankFilter');
+  assert.equal(rerankLog.failOpen, true);
+  assert.equal(rerankLog.reason, 'rerank failed');
 });
 
 test('retrieval returns empty context when gates reject all candidates', async () => {
