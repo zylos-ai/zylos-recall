@@ -1,96 +1,213 @@
 /**
- * Configuration loader for zylos-recall
- *
- * Loads config from ~/zylos/components/recall/config.json
- * with hot-reload support via file watcher.
+ * Configuration loader for zylos-recall.
  */
 
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-const HOME = process.env.HOME;
+const HOME = process.env.HOME || os.homedir();
+
 export const DATA_DIR = path.join(HOME, 'zylos/components/recall');
 export const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
+export const INDEX_PATH = path.join(DATA_DIR, 'index.sqlite');
 
-// Default configuration
-export const DEFAULT_CONFIG = {
+export const DEFAULT_CONFIG = Object.freeze({
   enabled: true,
-  settings: {}
-};
+  dataDir: DATA_DIR,
+  indexPath: INDEX_PATH,
+  corpus: {
+    roots: [path.join(HOME, 'zylos')],
+    allow: [
+      'memory/reference/**/*.md',
+      'memory/users/**/*.md',
+      'http/public/pages/**/*.md',
+      '.claude/skills/*/SKILL.md',
+      '.claude/skills/*/references/**/*.md',
+      'workspace/*.md',
+      'workspace/**/README.md',
+      'workspace/**/DESIGN.md',
+      'workspace/**/CHANGELOG.md',
+      'workspace/**/CLAUDE.md',
+      'workspace/**/docs/**/*.md'
+    ],
+    deny: [
+      '**/.git/**',
+      '**/node_modules/**',
+      '**/logs/**',
+      '**/*.log',
+      '**/.env',
+      '**/.env.*',
+      '**/*secret*',
+      '**/*token*',
+      'memory/identity.md',
+      'memory/state.md',
+      'memory/references.md',
+      'memory/sessions/**',
+      'memory/archive/**',
+      'CLAUDE.md',
+      'AGENTS.md',
+      'ZYLOS.md',
+      '**/*.bak',
+      '**/*.backup',
+      '**/*.RETIRED',
+      '**/index.sqlite',
+      '**/index.sqlite-*'
+    ],
+    maxFileBytes: 512 * 1024
+  },
+  chunking: {
+    targetTokens: 350,
+    minTokens: 40,
+    maxTokens: 500,
+    overlapRatio: 0.15
+  },
+  embedder: {
+    provider: 'local-onnx',
+    model: 'Xenova/multilingual-e5-small',
+    dimension: 384,
+    batchSize: 16,
+    cacheDir: path.join(DATA_DIR, 'models')
+  },
+  retrieval: {
+    pipeline: ['denseRetrieve', 'freeGates', 'assemble'],
+    topK: 5,
+    threshold: 0.35,
+    maxTotalTokens: 1500,
+    chunkTokens: 350
+  },
+  filter: {
+    provider: 'none'
+  }
+});
 
 let config = null;
 let configWatcher = null;
 
-/**
- * Load configuration from file
- * @returns {Object} Configuration object
- */
-export function loadConfig() {
-  try {
-    if (fs.existsSync(CONFIG_PATH)) {
-      const content = fs.readFileSync(CONFIG_PATH, 'utf8');
-      config = { ...DEFAULT_CONFIG, ...JSON.parse(content) };
+export function expandHome(value) {
+  if (typeof value !== 'string') return value;
+  if (value === '~') return HOME;
+  if (value.startsWith('~/')) return path.join(HOME, value.slice(2));
+  return value;
+}
+
+function mergeObject(base, override) {
+  if (!override || typeof override !== 'object' || Array.isArray(override)) {
+    return structuredClone(base);
+  }
+
+  const merged = structuredClone(base);
+  for (const [key, value] of Object.entries(override)) {
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      merged[key] &&
+      typeof merged[key] === 'object' &&
+      !Array.isArray(merged[key])
+    ) {
+      merged[key] = mergeObject(merged[key], value);
     } else {
-      console.warn(`[recall] Config file not found: ${CONFIG_PATH}`);
-      config = { ...DEFAULT_CONFIG };
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+function normalizeConfig(input) {
+  const merged = mergeObject(DEFAULT_CONFIG, input);
+  merged.dataDir = expandHome(merged.dataDir);
+  merged.indexPath = expandHome(merged.indexPath);
+  merged.embedder.cacheDir = expandHome(merged.embedder.cacheDir);
+  merged.corpus.roots = merged.corpus.roots.map(expandHome);
+  return validateConfig(merged);
+}
+
+export function validateConfig(value) {
+  const errors = [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Config must be a JSON object');
+  }
+  if (typeof value.enabled !== 'boolean') errors.push('enabled must be boolean');
+  if (!Array.isArray(value.corpus?.roots) || value.corpus.roots.length === 0) {
+    errors.push('corpus.roots must be a non-empty array');
+  }
+  for (const field of ['allow', 'deny']) {
+    if (!Array.isArray(value.corpus?.[field])) {
+      errors.push(`corpus.${field} must be an array`);
+    }
+  }
+  if (!Number.isInteger(value.corpus?.maxFileBytes) || value.corpus.maxFileBytes <= 0) {
+    errors.push('corpus.maxFileBytes must be a positive integer');
+  }
+  if (!Number.isInteger(value.chunking?.targetTokens) || value.chunking.targetTokens <= 0) {
+    errors.push('chunking.targetTokens must be a positive integer');
+  }
+  if (!Number.isInteger(value.chunking?.maxTokens) || value.chunking.maxTokens < value.chunking.targetTokens) {
+    errors.push('chunking.maxTokens must be an integer >= chunking.targetTokens');
+  }
+  if (!Number.isInteger(value.embedder?.dimension) || value.embedder.dimension <= 0) {
+    errors.push('embedder.dimension must be a positive integer');
+  }
+  if (value.embedder?.provider !== 'local-onnx') {
+    errors.push('embedder.provider must be local-onnx for R1');
+  }
+  if (!Array.isArray(value.retrieval?.pipeline)) {
+    errors.push('retrieval.pipeline must be an array');
+  }
+  if (value.filter?.provider !== 'none') {
+    errors.push('filter.provider must be none for R1');
+  }
+  if (errors.length) {
+    throw new Error(`Invalid recall config: ${errors.join('; ')}`);
+  }
+  return value;
+}
+
+export function loadConfig(configPath = CONFIG_PATH) {
+  try {
+    if (fs.existsSync(configPath)) {
+      const content = fs.readFileSync(configPath, 'utf8');
+      config = normalizeConfig(JSON.parse(content));
+    } else {
+      config = normalizeConfig({});
     }
   } catch (err) {
-    console.error(`[recall] Failed to load config: ${err.message}`);
-    config = { ...DEFAULT_CONFIG };
+    throw new Error(`Failed to load recall config: ${err.message}`);
   }
   return config;
 }
 
-/**
- * Get current configuration
- * @returns {Object} Configuration object
- */
 export function getConfig() {
-  if (!config) {
-    loadConfig();
-  }
+  if (!config) return loadConfig();
   return config;
 }
 
-/**
- * Save configuration to file
- * @param {Object} newConfig - Configuration to save
- */
-export function saveConfig(newConfig) {
-  try {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(newConfig, null, 2));
-    config = newConfig;
-  } catch (err) {
-    console.error(`[recall] Failed to save config: ${err.message}`);
-    throw err;
-  }
+export function saveConfig(newConfig, configPath = CONFIG_PATH) {
+  const normalized = normalizeConfig(newConfig);
+  fs.mkdirSync(path.dirname(configPath), { recursive: true, mode: 0o700 });
+  const tmpPath = `${configPath}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(normalized, null, 2) + '\n', { mode: 0o600 });
+  fs.renameSync(tmpPath, configPath);
+  config = normalized;
+  return normalized;
 }
 
-/**
- * Start watching config file for changes
- * @param {Function} onChange - Callback when config changes
- */
-export function watchConfig(onChange) {
-  if (configWatcher) {
-    configWatcher.close();
-  }
+export function watchConfig(onChange, configPath = CONFIG_PATH) {
+  if (configWatcher) configWatcher.close();
+  if (!fs.existsSync(configPath)) return;
 
-  if (fs.existsSync(CONFIG_PATH)) {
-    configWatcher = fs.watch(CONFIG_PATH, (eventType) => {
-      if (eventType === 'change') {
-        console.log('[recall] Config file changed, reloading...');
-        loadConfig();
-        if (onChange) {
-          onChange(config);
-        }
-      }
-    });
-  }
+  configWatcher = fs.watch(configPath, (eventType) => {
+    if (eventType !== 'change' && eventType !== 'rename') return;
+    try {
+      const next = loadConfig(configPath);
+      onChange?.(next);
+    } catch (err) {
+      console.error(`[recall] Config reload failed: ${err.message}`);
+    }
+  });
 }
 
-/**
- * Stop watching config file
- */
 export function stopWatching() {
   if (configWatcher) {
     configWatcher.close();

@@ -18,7 +18,9 @@ const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const COMPONENT_PREFIX = 'RECALL_';
 
 const DEFAULT_CONFIG = {
-  enabled: true
+  enabled: true,
+  dataDir: DATA_DIR,
+  indexPath: path.join(DATA_DIR, 'index.sqlite')
 };
 
 function readStdin() {

@@ -19,9 +19,10 @@
 
 ---
 
-- **Feature 1** — description
-- **Feature 2** — description
-- **Feature 3** — description
+`zylos-recall` is a private capability component for proactive memory retrieval.
+R1 builds the local memory/document index only: it walks an allowlisted corpus,
+splits Markdown by semantic sections, embeds chunks with multilingual-e5-small,
+and stores chunk records plus vectors in SQLite/sqlite-vec.
 
 ## Install
 
@@ -43,15 +44,38 @@ Edit `~/zylos/components/recall/config.json`:
 
 ```json
 {
-  "enabled": true
+  "enabled": true,
+  "corpus": {
+    "roots": ["~/zylos"],
+    "allow": ["memory/reference/**/*.md", "memory/users/**/*.md"],
+    "deny": ["**/.env", "**/node_modules/**", "memory/sessions/**"]
+  },
+  "embedder": {
+    "provider": "local-onnx",
+    "model": "Xenova/multilingual-e5-small",
+    "dimension": 384
+  },
+  "retrieval": {
+    "pipeline": ["denseRetrieve", "freeGates", "assemble"],
+    "topK": 5,
+    "threshold": 0.35
+  },
+  "filter": { "provider": "none" }
 }
 ```
 
 ## Usage
 
 ```bash
-# Example usage
+# Build or incrementally refresh the local index
+npx zylos-recall index
+
+# Smoke query the vector index
+npx zylos-recall query "discord voice channel decisions"
 ```
+
+R1 intentionally does not install the prompt hook or inject retrieved memory.
+That arrives in R2/R3 after the retrieval gates and hook path are built.
 
 ## Built by Coco
 

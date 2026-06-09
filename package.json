@@ -4,9 +4,13 @@
   "description": "Proactive memory retrieval (RAG) — surfaces relevant memory into context each turn",
   "type": "module",
   "main": "src/index.js",
+  "bin": {
+    "zylos-recall": "src/cli.js"
+  },
   "scripts": {
     "start": "node src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test",
+    "check": "find src hooks test -name '*.js' -print | sort | xargs node --check"
   },
   "homepage": "https://github.com/zylos-ai/zylos-recall#readme",
   "bugs": {
@@ -26,5 +30,10 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "better-sqlite3": "^12.10.0",
+    "minimatch": "^10.2.5",
+    "sqlite-vec": "^0.1.9"
+  }
 }
