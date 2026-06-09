@@ -47,7 +47,16 @@ Edit `~/zylos/components/recall/config.json`:
   "enabled": true,
   "corpus": {
     "roots": ["~/zylos"],
-    "allow": ["memory/reference/**/*.md", "memory/users/**/*.md"],
+    "allow": [
+      "memory/reference/**/*.md",
+      "memory/users/**/*.md",
+      "http/public/pages/**/*.md",
+      ".claude/skills/*/SKILL.md",
+      "workspace/*.md",
+      "workspace/**/README.md",
+      "workspace/**/DESIGN.md",
+      "workspace/**/CHANGELOG.md"
+    ],
     "deny": ["**/.env", "**/node_modules/**", "memory/sessions/**"]
   },
   "embedder": {
@@ -100,9 +109,11 @@ The install/upgrade hooks register `src/retrieve.js` as a Claude
 `additionalContext` when the service returns a non-empty `<retrieved-memory>`
 block.
 
-Freshness is maintained by indexing on service startup, debounced filesystem
-watching where recursive watch is supported, and a periodic corpus mtime/size
-sweep fallback. Retrieval metadata is appended to
+The service listens before model warmup/indexing finishes, so hooks fail open
+instead of blocking startup while the model loads. Freshness is maintained by
+background startup indexing, narrowly scoped filesystem watches where supported,
+and a periodic corpus mtime/size sweep fallback. Retrieval drops candidates when
+the source file has changed since indexing. Retrieval metadata is appended to
 `~/zylos/components/recall/logs/retrieval.jsonl` without chunk text.
 
 ## Built by Coco

@@ -7,8 +7,10 @@ import { DEFAULT_CONFIG } from '../src/lib/config.js';
 import { startRuntime, stopRuntime } from '../src/index.js';
 
 class FakeEmbedder {
-  constructor() {
+  constructor({ blockWarm = false } = {}) {
     this.calls = [];
+    this.blockWarm = blockWarm;
+    this.releaseWarm = null;
   }
 
   id() {
@@ -21,6 +23,9 @@ class FakeEmbedder {
 
   async embed(texts, mode) {
     this.calls.push({ texts, mode });
+    if (this.blockWarm && texts[0] === 'warmup') {
+      await new Promise(resolve => { this.releaseWarm = resolve; });
+    }
     return [[1, 0]];
   }
 }
@@ -35,7 +40,7 @@ class FakeStore {
       source: 'memory/reference/projects.md',
       section: 'Alpha',
       hash: 'alpha-hash',
-      mtime: Date.parse('2026-06-09T00:00:00Z'),
+      mtime: Date.now() + 1000,
       tokenCount: 8,
       metadata: { date: '2026-06-09', type: 'memory' },
       score: 0.9
@@ -59,10 +64,16 @@ test('service exposes health and retrieve endpoints', async () => {
     store: new FakeStore()
   });
   try {
-    assert.deepEqual(embedder.calls[0], { texts: ['warmup'], mode: 'query' });
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
     const health = await fetch(`${baseUrl}/health`);
-    assert.deepEqual(await health.json(), { ok: true, service: 'zylos-recall' });
+    const healthPayload = await health.json();
+    assert.equal(healthPayload.ok, true);
+    assert.equal(healthPayload.service, 'zylos-recall');
+    assert.deepEqual(embedder.calls[0], { texts: ['warmup'], mode: 'query' });
+    await waitFor(async () => {
+      const response = await fetch(`${baseUrl}/health`);
+      return (await response.json()).ready === true;
+    });
 
     const retrieve = await fetch(`${baseUrl}/retrieve`, {
       method: 'POST',
@@ -73,6 +84,38 @@ test('service exposes health and retrieve endpoints', async () => {
     assert.equal(payload.ok, true);
     assert.match(payload.additionalContext, /<retrieved-memory/);
     assert.equal(payload.selected[0].source, 'memory/reference/projects.md');
+  } finally {
+    await stopRuntime();
+  }
+});
+
+test('service listens before warmup completes and fails open until ready', async () => {
+  const config = testConfig();
+  const embedder = new FakeEmbedder({ blockWarm: true });
+  const server = await startRuntime(config, {
+    embedder,
+    store: new FakeStore()
+  });
+  try {
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const health = await fetch(`${baseUrl}/health`);
+    const healthPayload = await health.json();
+    assert.equal(healthPayload.ok, true);
+    assert.equal(healthPayload.ready, false);
+    assert.equal(healthPayload.warming, true);
+
+    const early = await fetch(`${baseUrl}/retrieve`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query: 'alpha project details' })
+    });
+    assert.deepEqual(await early.json(), { ok: true, additionalContext: '' });
+
+    embedder.releaseWarm();
+    await waitFor(async () => {
+      const response = await fetch(`${baseUrl}/health`);
+      return (await response.json()).ready === true;
+    });
   } finally {
     await stopRuntime();
   }
@@ -101,10 +144,22 @@ function testConfig() {
   const config = structuredClone(DEFAULT_CONFIG);
   config.dataDir = dataDir;
   config.indexPath = path.join(dataDir, 'index.sqlite');
+  config.corpus.roots = [dataDir];
+  const sourceFile = path.join(dataDir, 'memory/reference/projects.md');
+  fs.mkdirSync(path.dirname(sourceFile), { recursive: true });
+  fs.writeFileSync(sourceFile, '# Alpha\n\nAlpha project memory should be returned by the service.');
   config.service.host = '127.0.0.1';
   config.service.port = 0;
   config.retrieval.threshold = 0.1;
   config.retrieval.recencyWeight = 0;
   config.freshness.enabled = false;
   return config;
+}
+
+async function waitFor(predicate) {
+  for (let i = 0; i < 20; i += 1) {
+    if (await predicate()) return;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  throw new Error('condition not met');
 }

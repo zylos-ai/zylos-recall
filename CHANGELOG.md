@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   supported, and periodic corpus mtime/size sweep fallback.
 - Retrieval metadata JSONL log with redacted query preview and selected
   chunk IDs/scores, without chunk text.
+- Runtime hotfixes for live install: listen-before-warm service startup,
+  retrieval staleness gate, narrowed default corpus allowlist, scoped
+  non-recursive workspace watcher behavior, and PM2 thread-count caps.
 
 ### Changed
 - Chunk IDs are stable against unrelated section insertion/removal by deriving
@@ -43,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deleting and reinserting embeddings.
 - Short substantive prompts with at least three words, such as `fix the bug`,
   are no longer skipped by the hook client.
+- `<retrieved-memory>` note now warns that snippets from actively edited files
+  may be stale.
 
 ### Upgrade Notes
 

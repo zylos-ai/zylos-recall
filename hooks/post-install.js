@@ -31,13 +31,10 @@ const INITIAL_CONFIG = {
       'memory/users/**/*.md',
       'http/public/pages/**/*.md',
       '.claude/skills/*/SKILL.md',
-      '.claude/skills/*/references/**/*.md',
       'workspace/*.md',
       'workspace/**/README.md',
       'workspace/**/DESIGN.md',
-      'workspace/**/CHANGELOG.md',
-      'workspace/**/CLAUDE.md',
-      'workspace/**/docs/**/*.md'
+      'workspace/**/CHANGELOG.md'
     ],
     deny: [
       '**/.git/**',

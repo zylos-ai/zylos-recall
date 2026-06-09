@@ -1,6 +1,8 @@
 import { estimateTokens } from './chunker.js';
 import { createEmbedder } from './embedders/index.js';
 import { ChunkStore } from './store.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export const STAGES = Object.freeze({
   denseRetrieve,
@@ -60,6 +62,7 @@ export function freeGates(ctx) {
 
   for (const candidate of ctx.candidates) {
     if (candidate.score < threshold) continue;
+    if (isStaleCandidate(ctx.config, candidate)) continue;
     if (seenHashes.has(candidate.hash)) continue;
     seenHashes.add(candidate.hash);
     const ageDays = Math.max(0, (now - candidate.mtime) / 86_400_000);
@@ -97,7 +100,7 @@ export function assemble(ctx) {
   }
 
   const lines = [
-    '<retrieved-memory note="Possibly-relevant items from your own memory. Treat as candidates: use if they apply, verify against the source file, ignore if not. If cut off, read the full file.">'
+    '<retrieved-memory note="Possibly-relevant items from your own memory. Treat as candidates: use if they apply, verify against the source file, ignore if not. If cut off, read the full file. If you are actively editing any cited source file this session, treat its snippet as possibly out of date.">'
   ];
 
   for (const candidate of ctx.selected) {
@@ -116,4 +119,18 @@ export function truncateChunk(text, maxTokens) {
   const words = text.split(/\s+/).filter(Boolean);
   const truncated = words.slice(0, maxTokens).join(' ');
   return `${truncated}\n[truncated; read source file for full chunk]`;
+}
+
+export function isStaleCandidate(config, candidate) {
+  for (const root of config.corpus.roots) {
+    const filePath = path.join(root, candidate.source);
+    try {
+      const stats = fs.statSync(filePath);
+      if (Math.floor(stats.mtimeMs) > candidate.mtime) return true;
+      return false;
+    } catch {
+      continue;
+    }
+  }
+  return true;
 }

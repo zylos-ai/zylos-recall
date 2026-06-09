@@ -19,6 +19,14 @@ let server = null;
 let embedder = null;
 let store = null;
 let freshness = null;
+let runtimeGeneration = 0;
+let runtimeState = {
+  ready: false,
+  warming: false,
+  warmError: null,
+  freshnessStarted: false,
+  freshnessError: null
+};
 
 export async function main() {
   console.log('[recall] Starting...');
@@ -46,18 +54,24 @@ export async function main() {
 }
 
 export async function startRuntime(activeConfig, options = {}) {
+  const generation = runtimeGeneration + 1;
+  runtimeGeneration = generation;
   config = activeConfig;
   embedder = options.embedder || createEmbedder(activeConfig.embedder);
   store = options.store || new ChunkStore(activeConfig.indexPath);
   store.initialize(embedder);
-  console.log('[recall] Warming embedder...');
-  await embedder.embed(['warmup'], 'query');
   freshness = options.freshness || new FreshnessManager(activeConfig, { embedder, store });
-  await freshness.start();
+  runtimeState = {
+    ready: false,
+    warming: true,
+    warmError: null,
+    freshnessStarted: false,
+    freshnessError: null
+  };
 
   server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
-      sendJson(res, 200, { ok: true, service: 'zylos-recall' });
+      sendJson(res, 200, { ok: true, service: 'zylos-recall', ...runtimeState });
       return;
     }
     if (req.method === 'POST' && req.url === '/retrieve') {
@@ -74,6 +88,7 @@ export async function startRuntime(activeConfig, options = {}) {
   const address = server.address();
   const boundPort = typeof address === 'object' && address ? address.port : activeConfig.service.port;
   console.log(`[recall] Service listening on ${activeConfig.service.host}:${boundPort}`);
+  startBackgroundRuntime(generation);
   return server;
 }
 
@@ -83,6 +98,7 @@ export async function restartRuntime(activeConfig, options = {}) {
 }
 
 export async function stopRuntime() {
+  runtimeGeneration += 1;
   if (freshness) {
     await freshness.stop();
     freshness = null;
@@ -95,6 +111,7 @@ export async function stopRuntime() {
     store.close();
     store = null;
   }
+  runtimeState.ready = false;
 }
 
 export async function handleRetrieve(req, res) {
@@ -103,6 +120,10 @@ export async function handleRetrieve(req, res) {
     const body = await readJson(req);
     const query = String(body.query || '').trim();
     if (!query) {
+      sendJson(res, 200, { ok: true, additionalContext: '' });
+      return;
+    }
+    if (!runtimeState.ready) {
       sendJson(res, 200, { ok: true, additionalContext: '' });
       return;
     }
@@ -167,8 +188,36 @@ function sendJson(res, status, payload) {
 function shutdown() {
   console.log(`[recall] Shutting down...`);
   if (server) server.close();
+  if (freshness) freshness.stop();
   if (store) store.close();
   process.exit(0);
+}
+
+async function startBackgroundRuntime(generation) {
+  try {
+    console.log('[recall] Warming embedder...');
+    await embedder.embed(['warmup'], 'query');
+    if (generation !== runtimeGeneration) return;
+    runtimeState.warming = false;
+    runtimeState.ready = true;
+    console.log('[recall] Embedder warm.');
+  } catch (err) {
+    if (generation !== runtimeGeneration) return;
+    runtimeState.warming = false;
+    runtimeState.warmError = err.message;
+    console.error(`[recall] Embedder warm failed: ${err.message}`);
+  }
+
+  try {
+    if (generation !== runtimeGeneration) return;
+    await freshness.start();
+    if (generation !== runtimeGeneration) return;
+    runtimeState.freshnessStarted = true;
+  } catch (err) {
+    if (generation !== runtimeGeneration) return;
+    runtimeState.freshnessError = err.message;
+    console.error(`[recall] Freshness start failed: ${err.message}`);
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

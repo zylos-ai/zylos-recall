@@ -12,6 +12,8 @@ test('loads defaults when config file is absent', () => {
   assert.equal(config.embedder.provider, 'local-onnx');
   assert.equal(config.freshness.enabled, true);
   assert.equal(config.freshness.sweepIntervalMs, 300000);
+  assert.equal(config.corpus.allow.includes('.claude/skills/*/references/**/*.md'), false);
+  assert.equal(config.corpus.allow.includes('workspace/**/docs/**/*.md'), false);
   assert.deepEqual(config.filter, { provider: 'none' });
 });
 

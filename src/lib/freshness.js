@@ -39,9 +39,9 @@ export class FreshnessManager {
 
   startWatchers() {
     if (this.config.freshness?.watch === false) return;
-    for (const root of concreteWatchDirs(this.config)) {
+    for (const entry of concreteWatchDirs(this.config)) {
       try {
-        const watcher = fs.watch(root, { recursive: true }, (_event, fileName) => {
+        const watcher = fs.watch(entry.dir, { recursive: entry.recursive }, (_event, fileName) => {
           if (!fileName || !isMarkdownLike(String(fileName))) return;
           this.scheduleRefresh('fs-watch');
         });
@@ -103,7 +103,8 @@ export class FreshnessManager {
 }
 
 export function concreteWatchDirs(config) {
-  const dirs = new Set();
+  const entries = new Map();
+  const recursiveSeen = new Set();
   const globStart = /[*?[{]/;
 
   for (const root of config.corpus.roots) {
@@ -114,11 +115,23 @@ export function concreteWatchDirs(config) {
       const relativeDir = concretePrefix.replace(/\\/g, '/').replace(/\/+$/, '');
       if (!relativeDir) continue;
       const watchDir = path.join(root, relativeDir);
-      if (fs.existsSync(watchDir)) dirs.add(watchDir);
+      if (!fs.existsSync(watchDir)) continue;
+      const recursive = pattern.slice(relativeDir.length).includes('**');
+      if (entries.has(watchDir) || recursiveSeen.has(watchDir)) continue;
+      entries.set(watchDir, { dir: watchDir, recursive });
+      if (recursive) recursiveSeen.add(watchDir);
     }
   }
 
-  return [...dirs].sort();
+  const values = [...entries.values()].sort((a, b) => a.dir.localeCompare(b.dir));
+  return values.filter((entry, index) => {
+    if (!entry.recursive) return true;
+    return !values.some((other, otherIndex) =>
+      otherIndex !== index &&
+      other.recursive &&
+      entry.dir.startsWith(`${other.dir}${path.sep}`)
+    );
+  });
 }
 
 function isMarkdownLike(fileName) {

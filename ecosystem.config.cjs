@@ -7,7 +7,10 @@ module.exports = {
     script: 'src/index.js',
     cwd: path.join(os.homedir(), 'zylos/.claude/skills/recall'),
     env: {
-      NODE_ENV: 'production'
+      NODE_ENV: 'production',
+      UV_THREADPOOL_SIZE: '2',
+      OMP_NUM_THREADS: '1',
+      ORT_NUM_THREADS: '1'
     },
     // Restart on failure
     autorestart: true,
