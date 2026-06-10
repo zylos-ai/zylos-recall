@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { extractPrompt, isSubstantive, normalizePromptForRetrieval, runRetrieveHook } from '../src/retrieve.js';
+import { sha256 } from '../src/lib/hash.js';
 
 const CONFIG = Object.freeze({
   enabled: true,
+  dataDir: '',
   service: {
     host: '127.0.0.1',
     port: 37537,
-    timeoutMs: 800
+    timeoutMs: 1000
   }
 });
 
@@ -56,13 +61,14 @@ test('skips trivial and control prompts', () => {
 test('writes hook additionalContext when service returns memory', async () => {
   let fetchCalled = false;
   const output = [];
+  const config = testConfig();
   const result = await runRetrieveHook({
     argv: [],
     stdin: Readable.from(['{"prompt":"please recall alpha project details"}']),
     stdout: { write: value => output.push(value) },
-    config: CONFIG,
+    config,
     timeoutSignal: ms => {
-      assert.equal(ms, 800);
+      assert.equal(ms, 1000);
       return 'timeout-signal';
     },
     fetchImpl: async (url, options) => {
@@ -88,15 +94,17 @@ test('writes hook additionalContext when service returns memory', async () => {
       additionalContext: '<retrieved-memory>alpha</retrieved-memory>'
     }
   });
+  assertClientLog(config, 'delivered', 'please recall alpha project details');
 });
 
 test('sends normalized C4 prompt to retrieval service', async () => {
   const envelope = `[DISCORD DM] felixlin. said: <current-message>what embedder did recall choose?</current-message> ---- reply via: node /Users/felixlin/zylos/.claude/skills/comm-bridge/scripts/c4-send.js "discord" "123"`;
+  const config = testConfig();
   const result = await runRetrieveHook({
     argv: [],
     stdin: Readable.from([JSON.stringify({ prompt: envelope })]),
     stdout: { write() {} },
-    config: CONFIG,
+    config,
     timeoutSignal: () => 'timeout-signal',
     fetchImpl: async (_url, options) => {
       assert.deepEqual(JSON.parse(options.body), { query: 'what embedder did recall choose?' });
@@ -110,6 +118,7 @@ test('sends normalized C4 prompt to retrieval service', async () => {
   });
 
   assert.equal(result, true);
+  assertClientLog(config, 'delivered', 'what embedder did recall choose?');
 });
 
 test('skips contentless C4 messages after normalization', async () => {
@@ -149,23 +158,26 @@ test('does not wait for stdin when argv contains the prompt', async () => {
 
 test('fails open on service errors and empty context', async () => {
   const output = [];
+  const errorConfig = testConfig();
   const thrown = await runRetrieveHook({
     argv: ['please recall alpha project details'],
     stdin: Readable.from([]),
     stdout: { write: value => output.push(value) },
-    config: CONFIG,
+    config: errorConfig,
     fetchImpl: async () => {
       throw new Error('service unavailable');
     }
   });
   assert.equal(thrown, false);
   assert.equal(output.length, 0);
+  assertClientLog(errorConfig, 'error', 'please recall alpha project details');
 
+  const emptyConfig = testConfig();
   const empty = await runRetrieveHook({
     argv: ['please recall alpha project details'],
     stdin: Readable.from([]),
     stdout: { write: value => output.push(value) },
-    config: CONFIG,
+    config: emptyConfig,
     fetchImpl: async () => ({
       ok: true,
       async json() {
@@ -175,4 +187,60 @@ test('fails open on service errors and empty context', async () => {
   });
   assert.equal(empty, false);
   assert.equal(output.length, 0);
+  assertClientLog(emptyConfig, 'empty', 'please recall alpha project details');
 });
+
+test('logs non-ok service responses as error, not empty', async () => {
+  const config = testConfig();
+  const result = await runRetrieveHook({
+    argv: ['please recall alpha project details'],
+    stdin: Readable.from([]),
+    stdout: { write() {} },
+    config,
+    fetchImpl: async () => ({
+      ok: false,
+      status: 503,
+      async json() {
+        return { error: 'unavailable' };
+      }
+    })
+  });
+
+  assert.equal(result, false);
+  assertClientLog(config, 'error', 'please recall alpha project details');
+});
+
+test('logs timeout outcome when fetch aborts', async () => {
+  const config = testConfig();
+  const result = await runRetrieveHook({
+    argv: ['please recall alpha project details'],
+    stdin: Readable.from([]),
+    stdout: { write() {} },
+    config,
+    fetchImpl: async () => {
+      const err = new Error('timed out');
+      err.name = 'TimeoutError';
+      throw err;
+    }
+  });
+
+  assert.equal(result, false);
+  assertClientLog(config, 'timeout', 'please recall alpha project details');
+});
+
+function testConfig() {
+  return {
+    ...CONFIG,
+    dataDir: fs.mkdtempSync(path.join(os.tmpdir(), 'recall-hook-'))
+  };
+}
+
+function assertClientLog(config, outcome, query) {
+  const logPath = path.join(config.dataDir, 'logs', 'retrieval.jsonl');
+  const lines = fs.readFileSync(logPath, 'utf8').trim().split('\n');
+  const parsed = JSON.parse(lines.at(-1));
+  assert.equal(parsed.kind, 'client');
+  assert.equal(parsed.outcome, outcome);
+  assert.equal(parsed.queryHash, sha256(query));
+  assert.equal(typeof parsed.durationMs, 'number');
+}

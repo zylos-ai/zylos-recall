@@ -52,14 +52,18 @@ export async function retrieveMemory(config, query, options = {}) {
 export async function denseRetrieve(ctx) {
   const [vector] = await ctx.embedder.embed([ctx.query], 'query');
   ctx.candidates = ctx.store.search(vector, { topK: ctx.config.retrieval.topK });
-  ctx.log.push({ stage: 'denseRetrieve', candidates: ctx.candidates.length });
+  ctx.log.push({
+    stage: 'denseRetrieve',
+    count: ctx.candidates.length,
+    candidates: ctx.candidates.map(candidateSnapshot)
+  });
 }
 
 export async function rerankFilter(ctx) {
   const started = Date.now();
   const filter = ctx.config.filter || { provider: 'none' };
   if (filter.provider !== 'rerank') {
-    ctx.log.push({ stage: 'rerankFilter', enabled: false, candidates: ctx.candidates.length });
+    ctx.log.push({ stage: 'rerankFilter', enabled: false, count: ctx.candidates.length });
     return;
   }
   if (!ctx.reranker) {
@@ -83,6 +87,13 @@ export async function rerankFilter(ctx) {
       ...candidate,
       rerankScore: Number(scores[index])
     }));
+    const keptIds = new Set(
+      rescored
+        .filter(candidate => candidate.rerankScore >= filter.threshold)
+        .sort((a, b) => b.rerankScore - a.rerankScore || b.score - a.score || b.mtime - a.mtime)
+        .slice(0, filter.keepK)
+        .map(candidate => candidate.id)
+    );
     ctx.candidates = rescored
       .filter(candidate => candidate.rerankScore >= filter.threshold)
       .sort((a, b) => b.rerankScore - a.rerankScore || b.score - a.score || b.mtime - a.mtime)
@@ -94,6 +105,11 @@ export async function rerankFilter(ctx) {
       threshold: filter.threshold,
       keepK: filter.keepK,
       maxPassageTokens: filter.maxPassageTokens,
+      candidates: rescored.map(candidate => ({
+        id: candidate.id,
+        rerankScore: roundScore(candidate.rerankScore),
+        kept: keptIds.has(candidate.id)
+      })),
       durationMs: Date.now() - started
     });
   } catch (err) {
@@ -113,39 +129,79 @@ export function freeGates(ctx) {
   const now = ctx.now || Date.now();
   const recencyWeight = ctx.config.retrieval.recencyWeight || 0;
   const gated = [];
+  const decisions = [];
 
   for (const candidate of ctx.candidates) {
-    if (candidate.score < threshold) continue;
-    if (isStaleCandidate(ctx.config, candidate)) continue;
-    if (seenHashes.has(candidate.hash)) continue;
+    if (candidate.score < threshold) {
+      decisions.push({ id: candidate.id, dropReason: 'belowThreshold' });
+      continue;
+    }
+    if (isStaleCandidate(ctx.config, candidate)) {
+      decisions.push({ id: candidate.id, dropReason: 'stale' });
+      continue;
+    }
+    if (seenHashes.has(candidate.hash)) {
+      decisions.push({ id: candidate.id, dropReason: 'dup' });
+      continue;
+    }
     seenHashes.add(candidate.hash);
     const ageDays = Math.max(0, (now - candidate.mtime) / 86_400_000);
     const recencyBoost = recencyWeight / (1 + ageDays / 30);
     const rankScore = candidate.rerankScore ?? candidate.score;
-    gated.push({
+    const passed = {
       ...candidate,
       rankScore,
       finalScore: rankScore + recencyBoost
-    });
+    };
+    gated.push(passed);
+    decisions.push({ id: candidate.id, kept: true });
   }
 
   gated.sort((a, b) => b.finalScore - a.finalScore || b.mtime - a.mtime);
-  ctx.selected = trimToBudget(gated, ctx.config.retrieval);
-  ctx.log.push({ stage: 'freeGates', selected: ctx.selected.length });
+  const { selected, budgetDropped } = trimToBudgetWithDrops(gated, ctx.config.retrieval);
+  ctx.selected = selected;
+
+  const budgetDroppedIds = new Set(budgetDropped.map(candidate => candidate.id));
+  const selectedIds = new Set(selected.map(candidate => candidate.id));
+  const finalDecisions = decisions.map(decision => {
+    if (!decision.kept) return decision;
+    if (selectedIds.has(decision.id)) return { id: decision.id, kept: true };
+    if (budgetDroppedIds.has(decision.id)) return { id: decision.id, dropReason: 'budget' };
+    return { id: decision.id, dropReason: 'budget' };
+  });
+
+  ctx.log.push({
+    stage: 'freeGates',
+    selected: ctx.selected.length,
+    survivors: ctx.selected.map(candidate => candidate.id),
+    drops: countDropReasons(finalDecisions),
+    candidates: finalDecisions
+  });
 }
 
 export function trimToBudget(candidates, retrievalConfig) {
+  return trimToBudgetWithDrops(candidates, retrievalConfig).selected;
+}
+
+function trimToBudgetWithDrops(candidates, retrievalConfig) {
   const maxTotalTokens = retrievalConfig.maxTotalTokens;
   const selected = [];
+  const budgetDropped = [];
   let used = 0;
   for (const candidate of candidates) {
-    if (used >= maxTotalTokens) break;
+    if (used >= maxTotalTokens) {
+      budgetDropped.push(candidate);
+      continue;
+    }
     const tokenCount = Math.min(candidate.tokenCount, retrievalConfig.chunkTokens);
-    if (used + tokenCount > maxTotalTokens && selected.length > 0) continue;
+    if (used + tokenCount > maxTotalTokens && selected.length > 0) {
+      budgetDropped.push(candidate);
+      continue;
+    }
     selected.push(candidate);
     used += tokenCount;
   }
-  return selected;
+  return { selected, budgetDropped };
 }
 
 export function assemble(ctx) {
@@ -189,4 +245,25 @@ export function isStaleCandidate(config, candidate) {
     }
   }
   return true;
+}
+
+function candidateSnapshot(candidate) {
+  return {
+    id: candidate.id,
+    source: candidate.source,
+    score: roundScore(candidate.score)
+  };
+}
+
+function roundScore(value) {
+  return typeof value === 'number' ? Number(value.toFixed(6)) : null;
+}
+
+function countDropReasons(decisions) {
+  const counts = {};
+  for (const decision of decisions) {
+    if (!decision.dropReason) continue;
+    counts[decision.dropReason] = (counts[decision.dropReason] || 0) + 1;
+  }
+  return counts;
 }

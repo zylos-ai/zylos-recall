@@ -17,6 +17,10 @@ export function defaultProjectDir(cwd = process.cwd(), home = os.homedir()) {
   return path.join(home, '.claude/projects', cwd.replace(/\//g, '-'));
 }
 
+export function defaultRetrievalLogPath(home = os.homedir()) {
+  return path.join(home, 'zylos/components/recall/logs/retrieval.jsonl');
+}
+
 export function resolveTranscript({ session = 'latest', transcriptDir, file } = {}) {
   if (file) return file;
   let dir = transcriptDir || defaultProjectDir();
@@ -137,4 +141,108 @@ export function formatInspection({ file, turns }, { last = 12, full = false } = 
   }
   out.push(bar);
   return out.join('\n');
+}
+
+export function inspectRetrievalLog({ file = defaultRetrievalLogPath() } = {}) {
+  const records = [];
+  if (!fs.existsSync(file)) return { file, records };
+  const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
+  for (const line of lines) {
+    try {
+      records.push(JSON.parse(line));
+    } catch {
+      continue;
+    }
+  }
+  return { file, records };
+}
+
+export function formatRetrievalLogInspection({ file, records }, { last = 20 } = {}) {
+  const show = records.slice(-last);
+  const serviceCount = records.filter(record => recordKind(record) === 'service').length;
+  const clientCount = records.filter(record => recordKind(record) === 'client').length;
+  const out = [
+    `# retrieval-log: ${path.basename(file)}`,
+    `# records: ${records.length} total, showing last ${show.length}`,
+    `# service/client: ${serviceCount}/${clientCount}`,
+    ''
+  ];
+  const bar = '──────────────────────────────────────────';
+  for (const record of show) {
+    out.push(bar);
+    const kind = recordKind(record);
+    const when = record.ts ? new Date(record.ts).toISOString().replace('T', ' ').slice(0, 19) : '(no ts)';
+    const hash = String(record.queryHash || '').slice(0, 12) || '(no hash)';
+    if (kind === 'client') {
+      out.push(`[${when}] CLIENT ${hash} outcome=${record.outcome || 'unknown'} duration=${formatMs(record.durationMs)}`);
+      continue;
+    }
+
+    out.push(`[${when}] SERVICE ${hash} injected=${Boolean(record.injected)} duration=${formatMs(record.durationMs)}`);
+    if (record.queryPreview) out.push(`   query: ${record.queryPreview}`);
+    if (Array.isArray(record.selected)) {
+      const selected = record.selected.map(item => {
+        const score = item.finalScore ?? item.rankScore ?? item.rerankScore ?? item.score;
+        return `${item.id || '?'}:${item.source || '?'}${score === null || score === undefined ? '' : `@${score}`}`;
+      });
+      out.push(`   selected(${record.selected.length}): ${selected.join(', ') || '(none)'}`);
+    }
+    for (const stage of Array.isArray(record.stages) ? record.stages : []) {
+      out.push(`   ${formatStage(stage)}`);
+    }
+  }
+  out.push(bar);
+  return out.join('\n');
+}
+
+function recordKind(record) {
+  return record.kind === 'client' ? 'client' : 'service';
+}
+
+function formatMs(value) {
+  return Number.isFinite(Number(value)) ? `${Number(value)}ms` : '?ms';
+}
+
+function formatStage(stage) {
+  if (!stage || typeof stage !== 'object') return 'stage: (invalid)';
+  if (stage.stage === 'denseRetrieve') {
+    return `denseRetrieve count=${stage.count ?? stage.candidates ?? 0} candidates=${formatCandidateList(stage.candidates, 'score')}`;
+  }
+  if (stage.stage === 'rerankFilter') {
+    if (stage.enabled === false) return `rerankFilter enabled=false count=${stage.count ?? stage.candidates ?? 0}`;
+    return `rerankFilter scored=${stage.scored ?? '?'} kept=${stage.kept ?? '?'} threshold=${stage.threshold ?? '?'} candidates=${formatCandidateList(stage.candidates, 'rerankScore')}`;
+  }
+  if (stage.stage === 'freeGates') {
+    const drops = stage.drops && typeof stage.drops === 'object'
+      ? Object.entries(stage.drops).map(([key, value]) => `${key}:${value}`).join(',')
+      : '';
+    return `freeGates selected=${stage.selected ?? 0} survivors=${formatIds(stage.survivors)} drops=${drops || '(none)'} candidates=${formatGateCandidates(stage.candidates)}`;
+  }
+  if (stage.stage === 'assemble') {
+    return `assemble injected=${Boolean(stage.injected)} bytes=${stage.bytes ?? 0}`;
+  }
+  return `${stage.stage || 'stage'} ${JSON.stringify(stage)}`;
+}
+
+function formatCandidateList(candidates, scoreKey) {
+  if (!Array.isArray(candidates)) return '(legacy-count-only)';
+  if (!candidates.length) return '(none)';
+  return candidates.map(candidate => {
+    const score = candidate?.[scoreKey];
+    const kept = typeof candidate?.kept === 'boolean' ? ` kept=${candidate.kept}` : '';
+    return `${candidate?.id || '?'}${score === null || score === undefined ? '' : `@${score}`}${kept}`;
+  }).join(',');
+}
+
+function formatGateCandidates(candidates) {
+  if (!Array.isArray(candidates)) return '(legacy-count-only)';
+  if (!candidates.length) return '(none)';
+  return candidates.map(candidate => {
+    if (candidate.kept) return `${candidate.id}:kept`;
+    return `${candidate.id}:${candidate.dropReason || 'dropped'}`;
+  }).join(',');
+}
+
+function formatIds(ids) {
+  return Array.isArray(ids) && ids.length ? ids.join(',') : '(none)';
 }

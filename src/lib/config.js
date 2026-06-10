@@ -77,7 +77,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   service: {
     host: '127.0.0.1',
     port: 37537,
-    timeoutMs: 800
+    timeoutMs: 1000
   },
   freshness: {
     enabled: true,

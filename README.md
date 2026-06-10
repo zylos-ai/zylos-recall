@@ -75,7 +75,7 @@ Edit `~/zylos/components/recall/config.json`:
   "service": {
     "host": "127.0.0.1",
     "port": 37537,
-    "timeoutMs": 800
+    "timeoutMs": 1000
   },
   "freshness": {
     "enabled": true,
@@ -114,6 +114,7 @@ npx zylos-recall retrieve "discord voice channel decisions"
 npx zylos-recall inspect --last 12          # summarized (sources per turn)
 npx zylos-recall inspect --last 12 --full   # full injected block per turn
 npx zylos-recall inspect --session <id>     # an older session
+npx zylos-recall inspect --retrieval-log    # service/client retrieval.jsonl
 
 # Start the warm local retrieval service
 npm start
@@ -135,8 +136,11 @@ index complete. If the optional reranker fails to warm or score a turn, retrieva
 continues fail-open without it. The reranker scores with a cheap pre-tokenizer
 passage slice plus a tokenizer length cap (`filter.maxPassageTokens`, default
 128) for latency only; stored chunks and assembled memory are unchanged.
-Retrieval metadata, stage timings, tokenizer caps, and scores are appended to
-`~/zylos/components/recall/logs/retrieval.jsonl` without chunk text.
+Retrieval metadata, stage timings, tokenizer caps, per-stage candidate IDs, and
+scores are appended to `~/zylos/components/recall/logs/retrieval.jsonl` without
+chunk text. The hook client also appends compact `kind:"client"` outcome lines
+so assembled service results can be distinguished from context actually
+delivered before the timeout.
 
 ## Eval Harness
 

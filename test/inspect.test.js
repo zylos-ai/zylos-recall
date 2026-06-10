@@ -4,7 +4,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  inspectSession, formatInspection, promptText, cleanPrompt, isRetrievedMemory, injectionSources
+  inspectSession,
+  formatInspection,
+  inspectRetrievalLog,
+  formatRetrievalLogInspection,
+  promptText,
+  cleanPrompt,
+  isRetrievedMemory,
+  injectionSources
 } from '../src/inspect.js';
 
 function writeTranscript(lines) {
@@ -62,4 +69,54 @@ test('inspectSession pairs each prompt with its injection (or null)', () => {
   const report = formatInspection({ file, turns }, { last: 12 });
   assert.ok(report.includes('injected: 1/2'));
   assert.ok(report.includes('stayed quiet'));
+});
+
+test('inspectRetrievalLog renders new and legacy retrieval log records', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-inspect-log-'));
+  const file = path.join(dir, 'retrieval.jsonl');
+  fs.writeFileSync(file, [
+    JSON.stringify({
+      ts: '2026-06-10T07:00:00Z',
+      queryHash: 'legacyhash',
+      queryPreview: 'legacy query',
+      durationMs: 12,
+      injected: true,
+      stages: [
+        { stage: 'denseRetrieve', candidates: 2 },
+        { stage: 'freeGates', selected: 1 }
+      ],
+      selected: [{ id: 'a', source: 'memory/reference/a.md', score: 0.9 }]
+    }),
+    JSON.stringify({
+      kind: 'service',
+      ts: '2026-06-10T07:00:01Z',
+      queryHash: 'servicehash',
+      queryPreview: 'new query',
+      durationMs: 15,
+      injected: false,
+      stages: [
+        { stage: 'denseRetrieve', count: 1, candidates: [{ id: 'a', source: 'memory/reference/a.md', score: 0.912346 }] },
+        { stage: 'rerankFilter', enabled: false, count: 1 },
+        { stage: 'freeGates', selected: 0, survivors: [], drops: { belowThreshold: 1 }, candidates: [{ id: 'a', dropReason: 'belowThreshold' }] },
+        { stage: 'assemble', injected: false }
+      ],
+      selected: []
+    }),
+    JSON.stringify({
+      kind: 'client',
+      ts: '2026-06-10T07:00:02Z',
+      queryHash: 'servicehash',
+      outcome: 'timeout',
+      durationMs: 1001
+    })
+  ].join('\n') + '\n');
+
+  const result = inspectRetrievalLog({ file });
+  assert.equal(result.records.length, 3);
+  const report = formatRetrievalLogInspection(result, { last: 3 });
+  assert.ok(report.includes('service/client: 2/1'));
+  assert.ok(report.includes('SERVICE legacyhash injected=true'));
+  assert.ok(report.includes('denseRetrieve count=2 candidates=(legacy-count-only)'));
+  assert.ok(report.includes('freeGates selected=0 survivors=(none) drops=belowThreshold:1 candidates=a:belowThreshold'));
+  assert.ok(report.includes('CLIENT servicehash outcome=timeout duration=1001ms'));
 });
