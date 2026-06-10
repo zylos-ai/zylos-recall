@@ -1,0 +1,54 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+test('post-upgrade preserves existing timeout and threshold values', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-post-upgrade-'));
+  const dataDir = path.join(home, 'zylos/components/recall');
+  fs.mkdirSync(dataDir, { recursive: true });
+  const configPath = path.join(dataDir, 'config.json');
+  const original = {
+    enabled: true,
+    dataDir,
+    indexPath: path.join(dataDir, 'index.sqlite'),
+    corpus: {
+      roots: [path.join(home, 'zylos')],
+      allow: ['memory/reference/**/*.md'],
+      deny: [],
+      maxFileBytes: 524288
+    },
+    retrieval: {
+      threshold: 0.65
+    },
+    service: {
+      host: '127.0.0.1',
+      port: 37537,
+      timeoutMs: 1000
+    },
+    freshness: {
+      enabled: true,
+      watch: true,
+      sweep: true,
+      debounceMs: 1000,
+      sweepIntervalMs: 300000
+    }
+  };
+  fs.writeFileSync(configPath, JSON.stringify(original, null, 2) + '\n');
+
+  const result = spawnSync(process.execPath, ['hooks/post-upgrade.js'], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, HOME: home },
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const migrated = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  assert.equal(migrated.service.timeoutMs, 1000);
+  assert.equal(migrated.retrieval.threshold, 0.65);
+});

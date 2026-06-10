@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { getConfig } from './lib/config.js';
+import { appendClientRetrievalLog } from './lib/retrieval-log.js';
 import { pathToFileURL } from 'node:url';
 
 function readStdin(stream = process.stdin) {
@@ -45,6 +46,10 @@ export function normalizePromptForRetrieval(prompt) {
 }
 
 export async function runRetrieveHook(options = {}) {
+  let activeConfig = null;
+  let prompt = '';
+  let shouldLogOutcome = false;
+  const started = Date.now();
   try {
     const {
       argv = process.argv.slice(2),
@@ -55,20 +60,28 @@ export async function runRetrieveHook(options = {}) {
       timeoutSignal = ms => AbortSignal.timeout(ms)
     } = options;
 
-    if (!config.enabled) return false;
+    activeConfig = config;
+    if (!activeConfig.enabled) return false;
     const argPrompt = argv.join(' ').trim();
-    const prompt = normalizePromptForRetrieval(argPrompt || extractPrompt(await readStdin(stdin), []));
+    prompt = normalizePromptForRetrieval(argPrompt || extractPrompt(await readStdin(stdin), []));
     if (!isSubstantive(prompt)) return false;
+    shouldLogOutcome = true;
 
-    const response = await fetchImpl(`http://${config.service.host}:${config.service.port}/retrieve`, {
+    const response = await fetchImpl(`http://${activeConfig.service.host}:${activeConfig.service.port}/retrieve`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ query: prompt }),
-      signal: timeoutSignal(config.service.timeoutMs)
+      signal: timeoutSignal(activeConfig.service.timeoutMs)
     });
-    if (!response.ok) return false;
+    if (!response.ok) {
+      logClientOutcome(activeConfig, prompt, 'error', started);
+      return false;
+    }
     const payload = await response.json();
-    if (!payload?.additionalContext) return false;
+    if (!payload?.additionalContext) {
+      logClientOutcome(activeConfig, prompt, 'empty', started);
+      return false;
+    }
 
     stdout.write(JSON.stringify({
       hookSpecificOutput: {
@@ -76,8 +89,12 @@ export async function runRetrieveHook(options = {}) {
         additionalContext: payload.additionalContext
       }
     }));
+    logClientOutcome(activeConfig, prompt, 'delivered', started);
     return true;
-  } catch {
+  } catch (err) {
+    if (shouldLogOutcome && activeConfig) {
+      logClientOutcome(activeConfig, prompt, isTimeoutError(err) ? 'timeout' : 'error', started);
+    }
     // Fail open: hook errors must never block a user turn.
     return false;
   }
@@ -91,6 +108,22 @@ export function isSubstantive(prompt) {
   const words = trimmed.match(/[A-Za-z0-9_]+(?:[-'][A-Za-z0-9_]+)?/g) || [];
   if (trimmed.length < 12 && words.length < 3) return false;
   return true;
+}
+
+function logClientOutcome(config, query, outcome, started) {
+  try {
+    appendClientRetrievalLog(config, {
+      query,
+      outcome,
+      durationMs: Date.now() - started
+    });
+  } catch {
+    // Logging must never block the hook or change fail-open behavior.
+  }
+}
+
+function isTimeoutError(err) {
+  return err?.name === 'AbortError' || err?.name === 'TimeoutError';
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

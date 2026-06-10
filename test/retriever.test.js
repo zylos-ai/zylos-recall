@@ -112,6 +112,20 @@ test('retrieval pipeline gates, ranks, budgets, and assembles context', async ()
   assert.match(result.additionalContext, /<\/retrieved-memory>$/);
   assert.deepEqual(result.log.map(entry => entry.stage), ['denseRetrieve', 'rerankFilter', 'freeGates', 'assemble']);
   assert.equal(result.log.find(entry => entry.stage === 'rerankFilter').enabled, false);
+  const denseLog = result.log.find(entry => entry.stage === 'denseRetrieve');
+  assert.deepEqual(denseLog.candidates.map(item => item.id), ['old', 'new', 'duplicate', 'weak']);
+  assert.equal(denseLog.candidates[0].score, 0.52);
+  assert.equal(JSON.stringify(denseLog).includes('old alpha project details'), false);
+  const freeLog = result.log.find(entry => entry.stage === 'freeGates');
+  assert.deepEqual(freeLog.survivors, ['new', 'old']);
+  assert.equal(freeLog.drops.belowThreshold, 1);
+  assert.equal(freeLog.drops.dup, 1);
+  assert.deepEqual(freeLog.candidates, [
+    { id: 'old', kept: true },
+    { id: 'new', kept: true },
+    { id: 'duplicate', dropReason: 'dup' },
+    { id: 'weak', dropReason: 'belowThreshold' }
+  ]);
 });
 
 test('rerank filter gates and orders candidates before free gates', async () => {
@@ -172,6 +186,11 @@ test('rerank filter gates and orders candidates before free gates', async () => 
   assert.equal(rerankLog.threshold, 0.5);
   assert.equal(rerankLog.keepK, 2);
   assert.equal(rerankLog.maxPassageTokens, 128);
+  assert.deepEqual(rerankLog.candidates, [
+    { id: 'high-cosine', rerankScore: 0.6, kept: true },
+    { id: 'best-rerank', rerankScore: 0.95, kept: true },
+    { id: 'low-rerank', rerankScore: 0.2, kept: false }
+  ]);
   assert.equal(typeof rerankLog.durationMs, 'number');
   assert.match(result.additionalContext, /best answer alpha project memory with the useful details/);
 });
@@ -222,6 +241,43 @@ test('retrieval returns empty context when gates reject all candidates', async (
 
   assert.equal(result.additionalContext, '');
   assert.equal(result.selected.length, 0);
+});
+
+test('free gates log budget drops', async () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  const { root, mtimes } = makeCorpus(['first', 'second']);
+  config.corpus.roots = [root];
+  config.retrieval.threshold = 0.1;
+  config.retrieval.maxTotalTokens = 6;
+  config.retrieval.chunkTokens = 6;
+
+  const result = await retrieveMemory(config, 'alpha project', {
+    embedder: new FakeEmbedder(),
+    store: new FakeStore([
+      candidate('first', {
+        hash: 'first-hash',
+        score: 0.9,
+        mtime: mtimes.first,
+        tokenCount: 6,
+        text: 'first alpha project match'
+      }),
+      candidate('second', {
+        hash: 'second-hash',
+        score: 0.8,
+        mtime: mtimes.second,
+        tokenCount: 6,
+        text: 'second alpha project match'
+      })
+    ])
+  });
+
+  assert.deepEqual(result.selected.map(item => item.id), ['first']);
+  const freeLog = result.log.find(entry => entry.stage === 'freeGates');
+  assert.equal(freeLog.drops.budget, 1);
+  assert.deepEqual(freeLog.candidates, [
+    { id: 'first', kept: true },
+    { id: 'second', dropReason: 'budget' }
+  ]);
 });
 
 test('retrieval drops stale candidates whose source file changed after indexing', async () => {

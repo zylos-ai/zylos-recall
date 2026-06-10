@@ -27,7 +27,7 @@ test('rejects unsupported v1 providers', () => {
     chunking: { targetTokens: 10, minTokens: 1, maxTokens: 20, overlapRatio: 0.1 },
     embedder: { provider: 'api', dimension: 384 },
     retrieval: { pipeline: [] },
-    service: { host: '127.0.0.1', port: 37537, timeoutMs: 800 },
+    service: { host: '127.0.0.1', port: 37537, timeoutMs: 1000 },
     filter: { provider: 'none' }
   }), /embedder\.provider/);
 });
@@ -39,7 +39,7 @@ test('accepts rerank filter config and rejects invalid rerank values', () => {
     chunking: { targetTokens: 10, minTokens: 1, maxTokens: 20, overlapRatio: 0.1 },
     embedder: { provider: 'local-onnx', dimension: 384 },
     retrieval: { pipeline: ['denseRetrieve', 'rerankFilter', 'freeGates', 'assemble'], topK: 5 },
-    service: { host: '127.0.0.1', port: 37537, timeoutMs: 800 },
+    service: { host: '127.0.0.1', port: 37537, timeoutMs: 1000 },
     freshness: { enabled: true, debounceMs: 0, sweepIntervalMs: 0 },
     filter: {
       provider: 'rerank',

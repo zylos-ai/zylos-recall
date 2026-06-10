@@ -81,7 +81,7 @@ Similarity = topical closeness, not task-usefulness. Gate cheap → expensive:
 | Multi-user scoping | dropped for v1 (profiles indexed flat) |
 | Filter day-one | threshold/free-gates only; LLM filter → R4 |
 | Hook wiring | component self-registers `UserPromptSubmit`; zylos-core deferred |
-| Robustness | **fail-open + hard timeout (~800ms)**: index missing / service down / any error → inject nothing, never block the turn |
+| Robustness | **fail-open + hard timeout (~1000ms)**: index missing / service down / any error → inject nothing, never block the turn |
 
 ## 6. Interfaces — a generic RAG substrate (policy deferred)
 
@@ -150,7 +150,7 @@ expand → retrieve[1..N] → merge → gate → rank → assemble
 | Slice | Deliverable |
 |-------|-------------|
 | **R1 — Scaffold + indexer** | config schema (corpus allow/denylist, embedder, retrieval pipeline, filter); corpus walker + **semantic chunker** (by section, bounded, content-hash); **embedder interface + local-onnx multilingual-e5-small driver** (query/passage modes); **open chunk store** per §6.1 — minimal typed columns + `embeddings[]` (multi-vector ready) + **open `metadata` JSON blob** (v1 fills date/type; future policies attach freely, no migration); sqlite-vec for vectors; build + **incremental** index (hash-diff) + full-reindex on embedder change; index/query CLI; unit tests. |
-| **R2 — Retrieval + free gates + format** | **Retriever stage-pipeline** per §6.3 (config-ordered `Stage(ctx)->ctx`); initial pipeline: `denseRetrieve → freeGates(threshold/dedup/recency/budget) → assemble(<retrieved-memory>)` (verbatim, source-tagged, truncate+pointer); warm embedding **PM2 service**; `retrieve.js` thin client with **fail-open + ~800ms timeout**; tests on a fixed corpus. |
+| **R2 — Retrieval + free gates + format** | **Retriever stage-pipeline** per §6.3 (config-ordered `Stage(ctx)->ctx`); initial pipeline: `denseRetrieve → freeGates(threshold/dedup/recency/budget) → assemble(<retrieved-memory>)` (verbatim, source-tagged, truncate+pointer); warm embedding **PM2 service**; `retrieve.js` thin client with **fail-open + ~1000ms timeout**; tests on a fixed corpus. |
 | **R3 — Hook wiring + freshness** | `post-install` registers `UserPromptSubmit`→`retrieve.js` (pre-uninstall removes); **per-tier freshness** (content-hash diff): memory tier re-index on Memory-Sync/checkpoint (+ mtime first-pass); non-memory tiers via fs-watcher (debounced) + scheduler sweep; trigger skip-rule; live end-to-end on Claude Code. |
 | **R4 — Cross-encoder precision filter** | optional local rerank stage (`none`/`rerank`) in the per-turn retrieval pipeline; fail-open and warmed with the service. |
 | **R5 — Multi-provider + eval** | more embedder drivers (bge-m3, API); named per-embedder indexes; **eval harness** (labeled query→expected-memory → Recall@K / Precision@K). |
@@ -164,7 +164,7 @@ expand → retrieve[1..N] → merge → gate → rank → assemble
 
 ## 9. Robustness & security (must-haves)
 
-- **Fail-open** with ~800ms hard timeout on the hook path — never block or break a turn (protects heartbeat/liveness).
+- **Fail-open** with ~1000ms hard timeout on the hook path — never block or break a turn (protects heartbeat/liveness).
 - **Never index secrets** — `.env`, tokens-in-configs are hard-excluded by the denylist; retrieved chunks could otherwise leak into context/logs/responses.
 - Query↔passage prefix asymmetry encoded in the e5 driver (recall tanks otherwise).
 - sqlite **WAL** for concurrent reconcile-write vs query-read.

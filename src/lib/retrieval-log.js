@@ -5,8 +5,8 @@ import { sha256 } from './hash.js';
 const SECRET_RE = /\b(?:sk-[A-Za-z0-9_-]+|[A-Za-z0-9_-]*token[A-Za-z0-9_-]*[:=][^\s]+|[A-Za-z0-9_-]*secret[A-Za-z0-9_-]*[:=][^\s]+)\b/gi;
 
 export function appendRetrievalLog(config, { query, selected = [], stages = [], durationMs, injected }) {
-  const logPath = config.retrieval?.logPath || path.join(config.dataDir, 'logs', 'retrieval.jsonl');
   const record = {
+    kind: 'service',
     ts: new Date().toISOString(),
     queryHash: sha256(String(query || '')),
     queryPreview: redactQuery(String(query || '')),
@@ -23,8 +23,20 @@ export function appendRetrievalLog(config, { query, selected = [], stages = [], 
     }))
   };
 
-  fs.mkdirSync(path.dirname(logPath), { recursive: true, mode: 0o700 });
-  fs.appendFileSync(logPath, `${JSON.stringify(record)}\n`, { mode: 0o600 });
+  appendJsonLine(config, record);
+  return record;
+}
+
+export function appendClientRetrievalLog(config, { query, outcome, durationMs }) {
+  const record = {
+    kind: 'client',
+    ts: new Date().toISOString(),
+    queryHash: sha256(String(query || '')),
+    outcome,
+    durationMs
+  };
+
+  appendJsonLine(config, record);
   return record;
 }
 
@@ -35,4 +47,10 @@ export function redactQuery(query) {
 
 function roundScore(value) {
   return typeof value === 'number' ? Number(value.toFixed(6)) : null;
+}
+
+function appendJsonLine(config, record) {
+  const logPath = config.retrieval?.logPath || path.join(config.dataDir, 'logs', 'retrieval.jsonl');
+  fs.mkdirSync(path.dirname(logPath), { recursive: true, mode: 0o700 });
+  fs.appendFileSync(logPath, `${JSON.stringify(record)}\n`, { mode: 0o600, flag: 'a' });
 }
