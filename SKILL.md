@@ -123,6 +123,7 @@ The service watches the config directory, so creating or replacing
 restarts runtime. The hook client reads `service.timeoutMs` each turn, so
 timeout changes affect new hook calls immediately. Reranker warmup happens on
 the next service runtime start/restart. Setting `enabled` to `false` stops the
-PM2-managed service cleanly; set it back to `true` and run
-`pm2 start zylos-recall` to re-enable it because the stopped process no longer
+service with exit code 0; PM2 parks it as `waiting restart` without relaunching
+it or marking it errored. Set it back to `true` and run
+`pm2 start zylos-recall` to re-enable it because the parked process no longer
 has a live config watcher.

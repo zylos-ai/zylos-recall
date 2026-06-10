@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('PM2 treats intentional disabled exits as clean stops', () => {
+test('PM2 treats intentional disabled exits as no-relaunch exits', () => {
   const ecosystem = require('../ecosystem.config.cjs');
   const app = ecosystem.apps.find(entry => entry.name === 'zylos-recall');
 
@@ -18,7 +18,7 @@ test('PM2 treats intentional disabled exits as clean stops', () => {
   assert.deepEqual(app.stop_exit_codes, [0]);
 });
 
-test('disabled startup exits with code 0 for PM2 clean-stop semantics', () => {
+test('disabled startup exits with code 0 for PM2 no-relaunch semantics', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-disabled-home-'));
   const dataDir = path.join(home, 'zylos/components/recall');
   fs.mkdirSync(dataDir, { recursive: true });
@@ -35,5 +35,6 @@ test('disabled startup exits with code 0 for PM2 clean-stop semantics', () => {
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /Component disabled in config, exiting/);
+  assert.match(result.stdout, /Component disabled in config, exiting with code 0/);
+  assert.match(result.stdout, /PM2 will park this as waiting restart without relaunching/);
 });
