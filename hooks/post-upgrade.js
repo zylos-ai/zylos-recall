@@ -113,12 +113,16 @@ if (fs.existsSync(configPath)) {
 
     // Save if migrated
     if (migrated) {
-      fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), { mode: 0o600 });
       console.log('Config migrations applied:');
       migrations.forEach(m => console.log('  - ' + m));
     } else {
       console.log('No config migrations needed.');
     }
+
+    // Config may hold secrets (e.g. api keys); repair the 0600 invariant on
+    // every upgrade even when no migration touched the file.
+    fs.chmodSync(configPath, 0o600);
   } catch (err) {
     console.error('Config migration failed:', err.message);
     process.exit(1);
