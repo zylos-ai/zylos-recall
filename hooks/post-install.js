@@ -29,15 +29,21 @@ const INITIAL_CONFIG = {
     allow: [
       'memory/reference/**/*.md',
       'memory/users/**/*.md',
+      'memory/sessions/current.md',
       'http/public/pages/**/*.md',
       '.claude/skills/*/SKILL.md',
+      '.claude/skills/*/references/**/*.md',
       'workspace/*.md',
       'workspace/**/README.md',
       'workspace/**/DESIGN.md',
-      'workspace/**/CHANGELOG.md'
+      'workspace/**/CHANGELOG.md',
+      'workspace/**/docs/*.md',
+      'workspace/**/CLAUDE.md'
     ],
     deny: [
       '**/.git/**',
+      '**/.backup/**',
+      '**/.zylos/**',
       '**/node_modules/**',
       '**/logs/**',
       '**/*.log',
@@ -48,7 +54,6 @@ const INITIAL_CONFIG = {
       'memory/identity.md',
       'memory/state.md',
       'memory/references.md',
-      'memory/sessions/**',
       'memory/archive/**',
       'CLAUDE.md',
       'AGENTS.md',
@@ -83,7 +88,10 @@ const INITIAL_CONFIG = {
     threshold: 0.35,
     maxTotalTokens: 1500,
     chunkTokens: 350,
-    recencyWeight: 0.05
+    recencyWeight: 0.05,
+    tierPenalties: {
+      session: 0.05
+    }
   },
   service: {
     host: '127.0.0.1',

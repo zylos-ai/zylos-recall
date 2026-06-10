@@ -443,6 +443,76 @@ test('BM25 retrieval fails open when text search throws', async () => {
   assert.equal(bm25Log.reason, 'fts unavailable');
 });
 
+test('session tier penalty nudges ordering without vetoing strong matches', async () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  const { root, mtimes } = makeCorpus(['curated', 'session', 'weaker']);
+  writeSessionFile(root, mtimes.session);
+  config.corpus.roots = [root];
+  config.retrieval.pipeline = ['denseRetrieve', 'freeGates', 'assemble'];
+  config.retrieval.threshold = 0.1;
+  config.retrieval.recencyWeight = 0;
+  config.retrieval.maxTotalTokens = 100;
+
+  const result = await retrieveMemory(config, 'alpha project', {
+    embedder: new FakeEmbedder(),
+    store: new FakeStore([
+      candidate('session', {
+        source: 'memory/sessions/current.md',
+        hash: 'session-hash',
+        score: 0.9,
+        mtime: mtimes.session,
+        metadata: { date: '2026-06-09', type: 'session' },
+        text: 'session alpha project memory'
+      }),
+      candidate('curated', {
+        hash: 'curated-hash',
+        score: 0.9,
+        mtime: mtimes.curated,
+        text: 'curated alpha project memory'
+      }),
+      candidate('weaker', {
+        hash: 'weaker-hash',
+        score: 0.82,
+        mtime: mtimes.weaker,
+        text: 'weaker curated alpha project memory'
+      })
+    ])
+  });
+
+  assert.deepEqual(result.selected.map(item => item.id), ['curated', 'session', 'weaker']);
+  assert.equal(result.selected.find(item => item.id === 'session').finalScore, 0.85);
+  assert.match(result.additionalContext, /\[memory\/sessions\/current\.md . 2026-06-09 . session log — may be superseded\]/);
+  assert.doesNotMatch(result.additionalContext, /\[memory\/reference\/curated\.md . 2026-06-09 . session log/);
+});
+
+test('missing tier penalties preserve legacy score ordering', async () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  const { root, mtimes } = makeCorpus(['session']);
+  writeSessionFile(root, mtimes.session);
+  config.corpus.roots = [root];
+  config.retrieval.pipeline = ['denseRetrieve', 'freeGates', 'assemble'];
+  config.retrieval.threshold = 0.1;
+  config.retrieval.recencyWeight = 0;
+  delete config.retrieval.tierPenalties;
+
+  const result = await retrieveMemory(config, 'alpha project', {
+    embedder: new FakeEmbedder(),
+    store: new FakeStore([
+      candidate('session', {
+        source: 'memory/sessions/current.md',
+        hash: 'session-hash',
+        score: 0.9,
+        mtime: mtimes.session,
+        metadata: { date: '2026-06-09', type: 'session' },
+        text: 'session alpha project memory'
+      })
+    ])
+  });
+
+  assert.equal(result.selected[0].rankScore, 0.9);
+  assert.equal(result.selected[0].finalScore, 0.9);
+});
+
 function makeCorpus(ids) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-retriever-'));
   const dir = path.join(root, 'memory/reference');
@@ -468,4 +538,12 @@ function candidate(id, overrides) {
     metadata: { date: '2026-06-09', type: 'memory' },
     ...overrides
   };
+}
+
+function writeSessionFile(root, mtime) {
+  const file = path.join(root, 'memory/sessions/current.md');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '# Session\n\nsession alpha project memory');
+  const time = new Date(mtime);
+  fs.utimesSync(file, time, time);
 }

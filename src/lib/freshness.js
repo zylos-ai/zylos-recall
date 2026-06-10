@@ -110,16 +110,13 @@ export function concreteWatchDirs(config) {
   for (const root of config.corpus.roots) {
     for (const pattern of config.corpus.allow) {
       if (pattern.startsWith('/') || pattern.includes('..')) continue;
-      const matchIndex = pattern.search(globStart);
-      const concretePrefix = matchIndex >= 0 ? pattern.slice(0, matchIndex) : path.posix.dirname(pattern);
-      const relativeDir = concretePrefix.replace(/\\/g, '/').replace(/\/+$/, '');
-      if (!relativeDir) continue;
-      const watchDir = path.join(root, relativeDir);
-      if (!fs.existsSync(watchDir)) continue;
-      const recursive = pattern.slice(relativeDir.length).includes('**');
-      if (entries.has(watchDir) || recursiveSeen.has(watchDir)) continue;
-      entries.set(watchDir, { dir: watchDir, recursive });
-      if (recursive) recursiveSeen.add(watchDir);
+      for (const candidate of watchCandidates(root, pattern, globStart)) {
+        const { watchDir, recursive } = candidate;
+        if (!fs.existsSync(watchDir)) continue;
+        if (entries.has(watchDir) || recursiveSeen.has(watchDir)) continue;
+        entries.set(watchDir, { dir: watchDir, recursive });
+        if (recursive) recursiveSeen.add(watchDir);
+      }
     }
   }
 
@@ -132,6 +129,51 @@ export function concreteWatchDirs(config) {
       entry.dir.startsWith(`${other.dir}${path.sep}`)
     );
   });
+}
+
+function watchCandidates(root, pattern, globStart) {
+  const normalized = pattern.replace(/\\/g, '/');
+  const matchIndex = normalized.search(globStart);
+  if (matchIndex < 0) {
+    const relativeDir = path.posix.dirname(normalized);
+    return relativeDir && relativeDir !== '.'
+      ? [{ watchDir: path.join(root, relativeDir), recursive: false }]
+      : [];
+  }
+
+  const segments = normalized.split('/');
+  const firstGlobIndex = segments.findIndex(segment => globStart.test(segment));
+  const concretePrefix = segments.slice(0, firstGlobIndex).join('/');
+  const baseDir = path.join(root, concretePrefix);
+  const expanded = expandOneWildcardWatchDirs(baseDir, segments.slice(firstGlobIndex));
+  if (expanded.length) return expanded;
+
+  const relativeDir = concretePrefix.replace(/\/+$/, '');
+  if (!relativeDir) return [];
+  return [{
+    watchDir: path.join(root, relativeDir),
+    recursive: normalized.slice(relativeDir.length).includes('**')
+  }];
+}
+
+function expandOneWildcardWatchDirs(baseDir, globSegments) {
+  if (globSegments[0] !== '*' || !fs.existsSync(baseDir)) return [];
+  const literalTail = [];
+  for (const segment of globSegments.slice(1)) {
+    if (/[*?[{]/.test(segment)) break;
+    literalTail.push(segment);
+  }
+  if (!literalTail.length) return [];
+
+  const remaining = globSegments.slice(1 + literalTail.length);
+  const recursive = remaining.join('/').includes('**');
+  const candidates = [];
+  for (const entry of fs.readdirSync(baseDir)) {
+    const watchDir = path.join(baseDir, entry, ...literalTail);
+    if (!fs.existsSync(watchDir)) continue;
+    candidates.push({ watchDir, recursive });
+  }
+  return candidates;
 }
 
 function isMarkdownLike(fileName) {
