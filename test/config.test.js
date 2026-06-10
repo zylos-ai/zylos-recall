@@ -12,8 +12,12 @@ test('loads defaults when config file is absent', () => {
   assert.equal(config.embedder.provider, 'local-onnx');
   assert.equal(config.freshness.enabled, true);
   assert.equal(config.freshness.sweepIntervalMs, 300000);
-  assert.equal(config.corpus.allow.includes('.claude/skills/*/references/**/*.md'), false);
+  assert.equal(config.corpus.allow.includes('.claude/skills/*/references/**/*.md'), true);
+  assert.equal(config.corpus.allow.includes('memory/sessions/current.md'), true);
+  assert.equal(config.corpus.allow.includes('workspace/**/docs/*.md'), true);
+  assert.equal(config.corpus.allow.includes('workspace/**/CLAUDE.md'), true);
   assert.equal(config.corpus.allow.includes('workspace/**/docs/**/*.md'), false);
+  assert.equal(config.corpus.deny.includes('memory/sessions/**'), false);
   assert.equal(config.filter.provider, 'none');
   assert.equal(config.filter.model, 'Xenova/bge-reranker-base');
   assert.equal(config.filter.dtype, 'q8');
@@ -22,6 +26,7 @@ test('loads defaults when config file is absent', () => {
   assert.equal(config.retrieval.bm25TopK, 10);
   assert.equal(config.retrieval.rrfK, 60);
   assert.equal(config.retrieval.bm25AdmitTopN, 2);
+  assert.deepEqual(config.retrieval.tierPenalties, { session: 0.05 });
 });
 
 test('rejects unsupported v1 providers', () => {
@@ -47,7 +52,8 @@ test('accepts rerank filter config and rejects invalid rerank values', () => {
       topK: 5,
       bm25TopK: 10,
       rrfK: 60,
-      bm25AdmitTopN: 2
+      bm25AdmitTopN: 2,
+      tierPenalties: { session: 0.05 }
     },
     service: { host: '127.0.0.1', port: 37537, timeoutMs: 1000 },
     freshness: { enabled: true, debounceMs: 0, sweepIntervalMs: 0 },
@@ -92,6 +98,27 @@ test('validates rerank passage cap even when filter is disabled', () => {
   config.filter.maxPassageTokens = 512;
 
   assert.throws(() => validateConfig(config), /filter\.maxPassageTokens/);
+});
+
+test('validates tier penalties when present', () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  config.retrieval.tierPenalties = { session: 0.05, memory: 0 };
+  assert.equal(validateConfig(config).retrieval.tierPenalties.session, 0.05);
+
+  assert.throws(() => validateConfig({
+    ...config,
+    retrieval: { ...config.retrieval, tierPenalties: [] }
+  }), /retrieval\.tierPenalties must be an object/);
+
+  assert.throws(() => validateConfig({
+    ...config,
+    retrieval: { ...config.retrieval, tierPenalties: { session: -0.1 } }
+  }), /retrieval\.tierPenalties\.session/);
+
+  assert.throws(() => validateConfig({
+    ...config,
+    retrieval: { ...config.retrieval, tierPenalties: { session: Infinity } }
+  }), /retrieval\.tierPenalties\.session/);
 });
 
 test('saves config atomically with normalized paths', () => {

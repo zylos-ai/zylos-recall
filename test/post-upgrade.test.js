@@ -19,8 +19,8 @@ test('post-upgrade preserves existing timeout and threshold values', () => {
     indexPath: path.join(dataDir, 'index.sqlite'),
     corpus: {
       roots: [path.join(home, 'zylos')],
-      allow: ['memory/reference/**/*.md'],
-      deny: [],
+      allow: ['custom/**/*.md'],
+      deny: ['custom-deny/**/*.md'],
       maxFileBytes: 524288
     },
     retrieval: {
@@ -56,4 +56,7 @@ test('post-upgrade preserves existing timeout and threshold values', () => {
   assert.equal(migrated.retrieval.bm25TopK, 10);
   assert.equal(migrated.retrieval.rrfK, 60);
   assert.equal(migrated.retrieval.bm25AdmitTopN, 2);
+  assert.deepEqual(migrated.retrieval.tierPenalties, { session: 0.05 });
+  assert.deepEqual(migrated.corpus.allow, ['custom/**/*.md']);
+  assert.deepEqual(migrated.corpus.deny, ['custom-deny/**/*.md']);
 });

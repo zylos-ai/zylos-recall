@@ -68,9 +68,12 @@ test('watch roots are narrowed to concrete allowlist subtrees', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-watch-root-'));
   for (const dir of [
     'memory/reference',
+    'memory/sessions',
     'memory/users',
     'http/public/pages',
     '.claude/skills',
+    '.claude/skills/example/references',
+    '.claude/skills/example/node_modules',
     'workspace',
     'workspace/example/docs',
     'workspace/example/node_modules',
@@ -91,12 +94,15 @@ test('watch roots are narrowed to concrete allowlist subtrees', () => {
 
   assert.deepEqual(watched, [
     { dir: '.claude/skills', recursive: false },
+    { dir: '.claude/skills/example/references', recursive: true },
     { dir: 'http/public/pages', recursive: true },
     { dir: 'memory/reference', recursive: true },
+    { dir: 'memory/sessions', recursive: false },
     { dir: 'memory/users', recursive: true },
     { dir: 'workspace', recursive: false }
   ]);
   assert.equal(watched.some(entry => entry.dir === 'node_modules'), false);
+  assert.equal(watched.some(entry => entry.dir === '.claude/skills/example/node_modules'), false);
   assert.equal(watched.some(entry => entry.dir === '.git'), false);
   assert.equal(watched.some(entry => entry.dir === ''), false);
 });

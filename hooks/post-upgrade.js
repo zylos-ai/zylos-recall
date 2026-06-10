@@ -19,30 +19,6 @@ import { registerRecallHook } from '../src/lib/settings-hooks.js';
 const HOME = process.env.HOME;
 const DATA_DIR = path.join(HOME, 'zylos/components/recall');
 const configPath = path.join(DATA_DIR, 'config.json');
-const OLD_DEFAULT_ALLOW = [
-  'memory/reference/**/*.md',
-  'memory/users/**/*.md',
-  'http/public/pages/**/*.md',
-  '.claude/skills/*/SKILL.md',
-  '.claude/skills/*/references/**/*.md',
-  'workspace/*.md',
-  'workspace/**/README.md',
-  'workspace/**/DESIGN.md',
-  'workspace/**/CHANGELOG.md',
-  'workspace/**/CLAUDE.md',
-  'workspace/**/docs/**/*.md'
-];
-const NARROW_DEFAULT_ALLOW = [
-  'memory/reference/**/*.md',
-  'memory/users/**/*.md',
-  'http/public/pages/**/*.md',
-  '.claude/skills/*/SKILL.md',
-  'workspace/*.md',
-  'workspace/**/README.md',
-  'workspace/**/DESIGN.md',
-  'workspace/**/CHANGELOG.md'
-];
-
 console.log('[post-upgrade] Running recall-specific migrations...\n');
 
 // Config migrations
@@ -90,10 +66,10 @@ if (fs.existsSync(configPath)) {
       migrated = true;
       migrations.push('Added retrieval.bm25AdmitTopN');
     }
-    if (arraysEqual(config.corpus?.allow, OLD_DEFAULT_ALLOW)) {
-      config.corpus.allow = NARROW_DEFAULT_ALLOW;
+    if (config.retrieval.tierPenalties === undefined) {
+      config.retrieval.tierPenalties = { session: 0.05 };
       migrated = true;
-      migrations.push('Narrowed default corpus allowlist');
+      migrations.push('Added retrieval.tierPenalties');
     }
 
     if (!config.freshness) {
@@ -156,9 +132,3 @@ registerRecallHook();
 console.log('  - recall retrieve hook registered');
 
 console.log('\n[post-upgrade] Complete!');
-
-function arraysEqual(left, right) {
-  return Array.isArray(left) &&
-    left.length === right.length &&
-    left.every((value, index) => value === right[index]);
-}

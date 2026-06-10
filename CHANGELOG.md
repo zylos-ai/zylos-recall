@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   text.
 - FTS5 index maintenance, backfill, and fail-open text search in the sqlite
   chunk store.
+- Expanded default corpus coverage for current session logs, skill reference
+  docs, workspace docs, and workspace repo `CLAUDE.md` files while keeping root
+  runtime instruction files excluded.
+- Session-tier retrieval metadata with a default `retrieval.tierPenalties`
+  nudge and assembled session-log supersession marker.
 - Truthful retrieval logging with per-stage candidate snapshots, free-gate drop
   accounting, and service/client JSONL records joined by normalized query hash.
 - `zylos-recall inspect --retrieval-log` for service/client retrieval log
@@ -25,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Free gates now admit BM25-only candidates only within
   `retrieval.bm25AdmitTopN` and log other BM25-only drops as
   `bm25WeakNoDense`.
+- Post-upgrade adds `retrieval.tierPenalties` when missing but preserves
+  existing corpus allow/deny arrays for measured live deployment.
+- Default denylist excludes workspace backup/original trees such as `.backup/`
+  and `.zylos/` to avoid stale near-duplicate docs in expanded corpus matches.
 - Default hook timeout is now 1000ms for new installs/default configs; existing
   post-upgrade configs are preserved.
 

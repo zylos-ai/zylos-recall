@@ -21,15 +21,21 @@ export const DEFAULT_CONFIG = Object.freeze({
     allow: [
       'memory/reference/**/*.md',
       'memory/users/**/*.md',
+      'memory/sessions/current.md',
       'http/public/pages/**/*.md',
       '.claude/skills/*/SKILL.md',
+      '.claude/skills/*/references/**/*.md',
       'workspace/*.md',
       'workspace/**/README.md',
       'workspace/**/DESIGN.md',
-      'workspace/**/CHANGELOG.md'
+      'workspace/**/CHANGELOG.md',
+      'workspace/**/docs/*.md',
+      'workspace/**/CLAUDE.md'
     ],
     deny: [
       '**/.git/**',
+      '**/.backup/**',
+      '**/.zylos/**',
       '**/node_modules/**',
       '**/logs/**',
       '**/*.log',
@@ -40,7 +46,6 @@ export const DEFAULT_CONFIG = Object.freeze({
       'memory/identity.md',
       'memory/state.md',
       'memory/references.md',
-      'memory/sessions/**',
       'memory/archive/**',
       'CLAUDE.md',
       'AGENTS.md',
@@ -75,7 +80,10 @@ export const DEFAULT_CONFIG = Object.freeze({
     threshold: 0.35,
     maxTotalTokens: 1500,
     chunkTokens: 350,
-    recencyWeight: 0.05
+    recencyWeight: 0.05,
+    tierPenalties: {
+      session: 0.05
+    }
   },
   service: {
     host: '127.0.0.1',
@@ -186,6 +194,20 @@ export function validateConfig(value) {
   }
   if (!Number.isInteger(value.retrieval?.bm25AdmitTopN) || value.retrieval.bm25AdmitTopN < 0) {
     errors.push('retrieval.bm25AdmitTopN must be a non-negative integer');
+  }
+  if (
+    value.retrieval?.tierPenalties !== undefined &&
+    (!value.retrieval.tierPenalties ||
+      typeof value.retrieval.tierPenalties !== 'object' ||
+      Array.isArray(value.retrieval.tierPenalties))
+  ) {
+    errors.push('retrieval.tierPenalties must be an object');
+  } else if (value.retrieval?.tierPenalties) {
+    for (const [key, penalty] of Object.entries(value.retrieval.tierPenalties)) {
+      if (typeof penalty !== 'number' || !Number.isFinite(penalty) || penalty < 0) {
+        errors.push(`retrieval.tierPenalties.${key} must be a finite non-negative number`);
+      }
+    }
   }
   if (typeof value.service?.host !== 'string' || !value.service.host.trim()) {
     errors.push('service.host must be a non-empty string');

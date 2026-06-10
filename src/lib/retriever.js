@@ -253,10 +253,11 @@ export function freeGates(ctx) {
     const ageDays = Math.max(0, (now - candidate.mtime) / 86_400_000);
     const recencyBoost = recencyWeight / (1 + ageDays / 30);
     const rankScore = candidate.normalizedFused ?? candidate.rerankScore ?? candidate.score;
+    const tierPenalty = ctx.config.retrieval.tierPenalties?.[candidate.metadata?.type] ?? 0;
     const passed = {
       ...candidate,
       rankScore,
-      finalScore: rankScore + recencyBoost
+      finalScore: rankScore + recencyBoost - tierPenalty
     };
     gated.push(passed);
     decisions.push({ id: candidate.id, kept: true });
@@ -323,7 +324,8 @@ export function assemble(ctx) {
   for (const candidate of ctx.selected) {
     const date = candidate.metadata?.date || new Date(candidate.mtime).toISOString().slice(0, 10);
     const text = truncateChunk(candidate.text, ctx.config.retrieval.chunkTokens);
-    lines.push(`[${candidate.source} · ${date}] ${text}`);
+    const suffix = candidate.metadata?.type === 'session' ? ' · session log — may be superseded' : '';
+    lines.push(`[${candidate.source} · ${date}${suffix}] ${text}`);
   }
 
   lines.push('</retrieved-memory>');

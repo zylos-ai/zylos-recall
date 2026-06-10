@@ -174,7 +174,8 @@ export function inferChunkMetadata(filePath, rootPath, stats) {
   const relative = path.relative(rootPath, filePath).split(path.sep).join('/');
   let type = 'doc';
 
-  if (relative.startsWith('memory/reference/') || relative.startsWith('memory/users/')) type = 'memory';
+  if (relative.startsWith('memory/sessions/')) type = 'session';
+  else if (relative.startsWith('memory/reference/') || relative.startsWith('memory/users/')) type = 'memory';
   else if (relative.startsWith('http/public/pages/')) type = 'page';
   else if (relative.startsWith('.claude/skills/')) type = 'skill';
 

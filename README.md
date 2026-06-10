@@ -50,14 +50,18 @@ Edit `~/zylos/components/recall/config.json`:
     "allow": [
       "memory/reference/**/*.md",
       "memory/users/**/*.md",
+      "memory/sessions/current.md",
       "http/public/pages/**/*.md",
       ".claude/skills/*/SKILL.md",
+      ".claude/skills/*/references/**/*.md",
       "workspace/*.md",
       "workspace/**/README.md",
       "workspace/**/DESIGN.md",
-      "workspace/**/CHANGELOG.md"
+      "workspace/**/CHANGELOG.md",
+      "workspace/**/docs/*.md",
+      "workspace/**/CLAUDE.md"
     ],
-    "deny": ["**/.env", "**/node_modules/**", "memory/sessions/**"]
+    "deny": ["**/.env", "**/.backup/**", "**/.zylos/**", "**/node_modules/**", "CLAUDE.md", "AGENTS.md", "ZYLOS.md"]
   },
   "embedder": {
     "provider": "local-onnx",
@@ -73,7 +77,10 @@ Edit `~/zylos/components/recall/config.json`:
     "threshold": 0.35,
     "maxTotalTokens": 1500,
     "chunkTokens": 350,
-    "recencyWeight": 0.05
+    "recencyWeight": 0.05,
+    "tierPenalties": {
+      "session": 0.05
+    }
   },
   "service": {
     "host": "127.0.0.1",
@@ -137,6 +144,14 @@ only from the narrow `bm25AdmitTopN` rescue set, and the rest are logged as
 on upgrade; add `bm25Retrieve` and `rrfFuse` manually to opt in. The BM25
 index uses SQLite FTS5 `unicode61`, which does not segment CJK text well, so
 dense retrieval remains the main path for Chinese/Japanese/Korean content.
+Session-log chunks from `memory/sessions/current.md` are indexed as a separate
+`session` tier. They pass the same gates as other chunks, but default scoring
+subtracts `retrieval.tierPenalties.session` so curated memory wins equal-score
+ties while strong current-session hits can still surface. Session chunks are
+tagged in assembled context as session logs that may be superseded.
+Skill `references/` directories are watched when the service starts; if a new
+skill is installed while recall is already running, its references are still
+picked up by the periodic sweep and get direct watch coverage after restart.
 
 The service listens before model warmup/indexing finishes, so hooks fail open
 instead of blocking startup while models load. Freshness is maintained by
