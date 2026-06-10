@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runtime instruction files excluded.
 - Session-tier retrieval metadata with a default `retrieval.tierPenalties`
   nudge and assembled session-log supersession marker.
+- `zylos-recall recall` deliberate retrieval tool face with warm-service
+  preference, direct local fallback, text/JSON output, and clamped tool-mode
+  retrieval overrides.
+- `zylos-recall toc` sqlite-only index table of contents grouped by metadata
+  tier, with optional full section-title output.
 - Truthful retrieval logging with per-stage candidate snapshots, free-gate drop
   accounting, and service/client JSONL records joined by normalized query hash.
 - `zylos-recall inspect --retrieval-log` for service/client retrieval log

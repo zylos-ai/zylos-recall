@@ -274,6 +274,33 @@ export class ChunkStore {
     }
   }
 
+  listTocRows() {
+    if (!this.chunkTableExists()) return [];
+    const rows = this.db.prepare(`
+      SELECT source, section, mtime, metadata_json
+      FROM chunks
+      ORDER BY source, section
+    `).all();
+
+    return rows.map(row => {
+      const metadata = safeJson(row.metadata_json);
+      return {
+        source: row.source,
+        section: row.section,
+        date: metadata.date || new Date(row.mtime).toISOString().slice(0, 10),
+        type: metadata.type || 'memory'
+      };
+    });
+  }
+
+  chunkTableExists() {
+    const row = this.db.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name = 'chunks'
+    `).get();
+    return Boolean(row);
+  }
+
   backfillFtsIfNeeded() {
     const chunkCount = this.db.prepare('SELECT COUNT(*) AS count FROM chunks').get().count;
     const ftsCount = this.db.prepare('SELECT COUNT(*) AS count FROM fts_chunks').get().count;
@@ -321,4 +348,12 @@ function rowToChunk(row) {
     metadata: JSON.parse(row.metadata_json),
     embeddings: row.embeddings_json ? JSON.parse(row.embeddings_json) : []
   };
+}
+
+function safeJson(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return {};
+  }
 }

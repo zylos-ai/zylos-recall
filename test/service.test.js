@@ -60,6 +60,47 @@ class ThrowingStore extends FakeStore {
   }
 }
 
+class OverrideStore extends FakeStore {
+  constructor() {
+    super();
+    this.denseTopK = null;
+    this.bm25TopK = null;
+  }
+
+  search(_vector, { topK } = {}) {
+    this.denseTopK = topK;
+    return [
+      {
+        id: 'alpha',
+        text: 'alpha project memory should be returned by the service',
+        source: 'memory/reference/projects.md',
+        section: 'Alpha',
+        hash: 'alpha-hash',
+        mtime: Date.now() + 1000,
+        tokenCount: 8,
+        metadata: { date: '2026-06-09', type: 'memory' },
+        score: 0.9
+      },
+      {
+        id: 'beta',
+        text: 'beta project memory should be dropped by a tight tool budget',
+        source: 'memory/reference/projects.md',
+        section: 'Beta',
+        hash: 'beta-hash',
+        mtime: Date.now(),
+        tokenCount: 8,
+        metadata: { date: '2026-06-09', type: 'memory' },
+        score: 0.8
+      }
+    ];
+  }
+
+  searchText(_query, { topK } = {}) {
+    this.bm25TopK = topK;
+    return [];
+  }
+}
+
 class ThrowingReranker {
   async warmup() {
     throw new Error('reranker warm failed');
@@ -220,6 +261,41 @@ test('service fails open with empty context when retrieval throws', async () => 
       body: JSON.stringify({ query: 'alpha project details' })
     });
     assert.deepEqual(await response.json(), { ok: true, additionalContext: '' });
+  } finally {
+    await stopRuntime();
+  }
+});
+
+test('service clamps valid retrieval overrides and ignores bad override fields', async () => {
+  const config = testConfig();
+  const store = new OverrideStore();
+  const server = await startRuntime(config, {
+    embedder: new FakeEmbedder(),
+    store
+  });
+  try {
+    await waitFor(async () => {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/health`);
+      return (await response.json()).ready === true;
+    });
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/retrieve`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        query: 'alpha project details',
+        topK: 999,
+        bm25TopK: 'bad',
+        maxTotalTokens: 9
+      })
+    });
+    const payload = await response.json();
+
+    assert.equal(payload.ok, true);
+    assert.equal(store.denseTopK, 25);
+    assert.equal(store.bm25TopK, 10);
+    assert.equal(payload.selected.length, 1);
+    assert.equal(payload.selected[0].text, 'alpha project memory should be returned by the service');
   } finally {
     await stopRuntime();
   }
