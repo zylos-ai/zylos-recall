@@ -35,6 +35,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   start, debounces duplicate atomic-save events into one reload, and PM2 treats
   intentional `enabled=false` exits as non-relaunching `waiting restart` parks
   instead of restart failures or errored states.
+- Corpus walking now prunes deny-matched directories before descending into
+  them, reducing startup signature work while preserving deny-before-allow
+  semantics.
 - Hybrid retrieval stages: FTS5 BM25 `bm25Retrieve` plus reciprocal-rank
   fusion `rrfFuse`, with per-stage logs that include ranks/scores but no chunk
   text.
