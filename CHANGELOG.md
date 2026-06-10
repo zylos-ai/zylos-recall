@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `zylos-recall config get/set` for allowlisted runtime knobs, with dot-path
   reads, typed value parsing, existing config validation, atomic writes, and
   truthful apply-semantics messaging.
+- Issue #9 startup index reuse when corpus signature and chunking fingerprint
+  match, avoiding unchanged corpus re-chunk/re-embed work on service start.
 - Truthful retrieval logging with per-stage candidate snapshots, free-gate drop
   accounting, and service/client JSONL records joined by normalized query hash.
 - `zylos-recall inspect --retrieval-log` for service/client retrieval log

@@ -87,6 +87,7 @@ export class ChunkStore {
   }
 
   getEmbedderMeta() {
+    if (!this.metaTableExists()) return null;
     const id = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('embedder_id')?.value;
     const dimension = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('embedder_dimension')?.value;
     if (!id || !dimension) return null;
@@ -97,6 +98,21 @@ export class ChunkStore {
     const upsert = this.db.prepare('INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
     upsert.run('embedder_id', embedder.id());
     upsert.run('embedder_dimension', String(embedder.dimension()));
+  }
+
+  getMetaValue(key) {
+    if (!this.metaTableExists()) return null;
+    return this.db.prepare('SELECT value FROM meta WHERE key = ?').get(key)?.value ?? null;
+  }
+
+  setMetaValues(values) {
+    const upsert = this.db.prepare('INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+    const tx = this.db.transaction(() => {
+      for (const [key, value] of Object.entries(values)) {
+        upsert.run(key, String(value));
+      }
+    });
+    tx();
   }
 
   fullReindex(embedder) {
@@ -299,6 +315,19 @@ export class ChunkStore {
       WHERE type = 'table' AND name = 'chunks'
     `).get();
     return Boolean(row);
+  }
+
+  metaTableExists() {
+    const row = this.db.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'table' AND name = 'meta'
+    `).get();
+    return Boolean(row);
+  }
+
+  countChunks() {
+    if (!this.chunkTableExists()) return 0;
+    return this.db.prepare('SELECT COUNT(*) AS count FROM chunks').get().count;
   }
 
   backfillFtsIfNeeded() {

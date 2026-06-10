@@ -2,9 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { collectCorpusSignature } from './corpus.js';
 import { buildIndex } from './indexer.js';
+import { CHUNKER_VERSION } from './chunker.js';
+import { sha256 } from './hash.js';
+
+export const FRESHNESS_META_KEYS = Object.freeze({
+  corpusSignature: 'corpus_signature',
+  chunkingFingerprint: 'chunking_fingerprint'
+});
 
 export class FreshnessManager {
-  constructor(config, { embedder, store, build = buildIndex, log = console.log } = {}) {
+  constructor(config, { embedder, store, build = buildIndex, log = console.log, chunkerVersion = CHUNKER_VERSION } = {}) {
     this.config = config;
     this.embedder = embedder;
     this.store = store;
@@ -19,11 +26,22 @@ export class FreshnessManager {
     this.running = false;
     this.pendingReason = null;
     this.signature = null;
+    this.chunkerVersion = chunkerVersion;
   }
 
   async start() {
     if (!this.enabled) return;
-    await this.refreshNow('startup');
+    const started = Date.now();
+    const signature = collectCorpusSignature(this.config);
+    const signatureHash = hashCorpusSignature(signature);
+    const fingerprint = chunkingFingerprint(this.config, { chunkerVersion: this.chunkerVersion });
+    const chunkCount = this.reusableChunkCount(signatureHash, fingerprint);
+    if (chunkCount > 0) {
+      this.signature = signature;
+      this.log(`[recall] startup index reuse (signature+fingerprint match): ${chunkCount} chunks, ${Date.now() - started}ms`);
+    } else {
+      await this.refreshNow('startup', signature);
+    }
     this.startWatchers();
     this.startSweep();
   }
@@ -89,6 +107,7 @@ export class FreshnessManager {
       const started = Date.now();
       const result = await this.build(this.config, { embedder: this.embedder, store: this.store });
       this.signature = knownSignature || collectCorpusSignature(this.config);
+      this.writeFreshnessStamps(this.signature);
       this.log(`[recall] Index refreshed (${reason}): ${result.total} chunks, ${result.inserted} inserted, ${result.updated} updated, ${result.unchanged} unchanged, ${result.removed} removed in ${Date.now() - started}ms`);
       return result;
     } finally {
@@ -100,6 +119,50 @@ export class FreshnessManager {
       }
     }
   }
+
+  reusableChunkCount(signatureHash, fingerprint) {
+    if (
+      typeof this.store?.getMetaValue !== 'function' ||
+      typeof this.store?.countChunks !== 'function'
+    ) {
+      return 0;
+    }
+    if (typeof this.store?.getEmbedderMeta === 'function' && this.embedder) {
+      const current = this.store.getEmbedderMeta();
+      if (!current || current.id !== this.embedder.id() || current.dimension !== this.embedder.dimension()) {
+        return 0;
+      }
+    }
+    if (this.store.getMetaValue(FRESHNESS_META_KEYS.corpusSignature) !== signatureHash) return 0;
+    if (this.store.getMetaValue(FRESHNESS_META_KEYS.chunkingFingerprint) !== fingerprint) return 0;
+    return this.store.countChunks();
+  }
+
+  writeFreshnessStamps(signature) {
+    if (typeof this.store?.setMetaValues !== 'function') return;
+    this.store.setMetaValues({
+      [FRESHNESS_META_KEYS.corpusSignature]: hashCorpusSignature(signature),
+      [FRESHNESS_META_KEYS.chunkingFingerprint]: chunkingFingerprint(this.config, {
+        chunkerVersion: this.chunkerVersion
+      })
+    });
+  }
+}
+
+export function hashCorpusSignature(signature) {
+  return sha256(signature);
+}
+
+export function chunkingFingerprint(config, { chunkerVersion = CHUNKER_VERSION } = {}) {
+  return sha256(JSON.stringify({
+    chunkerVersion,
+    chunking: {
+      targetTokens: config.chunking?.targetTokens,
+      minTokens: config.chunking?.minTokens,
+      maxTokens: config.chunking?.maxTokens,
+      overlapRatio: config.chunking?.overlapRatio
+    }
+  }));
 }
 
 export function concreteWatchDirs(config) {
