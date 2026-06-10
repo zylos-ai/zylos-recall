@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   warning that default-list updates no longer auto-apply after the first edit,
   and a `--force` requirement to remove built-in secret-protection deny
   entries.
+- Config directory watching now catches config files created after service
+  start, debounces duplicate atomic-save events into one reload, and PM2 treats
+  intentional `enabled=false` exits as clean stops instead of restart failures.
 - Hybrid retrieval stages: FTS5 BM25 `bm25Retrieve` plus reciprocal-rank
   fusion `rrfFuse`, with per-stage logs that include ranks/scores but no chunk
   text.

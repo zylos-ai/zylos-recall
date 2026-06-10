@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { DEFAULT_CONFIG, loadConfig, saveConfig, validateConfig } from '../src/lib/config.js';
+import { DEFAULT_CONFIG, loadConfig, saveConfig, stopWatching, validateConfig, watchConfig } from '../src/lib/config.js';
 
 test('loads defaults when config file is absent', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-config-'));
@@ -129,3 +129,60 @@ test('saves config atomically with normalized paths', () => {
   const stat = fs.statSync(configPath);
   assert.equal(stat.mode & 0o777, 0o600);
 });
+
+test('config watcher debounces duplicate atomic-save events and re-arms after rename', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-watch-'));
+  const configPath = path.join(dir, 'config.json');
+  saveConfig({ dataDir: dir, indexPath: path.join(dir, 'index.sqlite'), retrieval: { topK: 5 } }, configPath);
+  const seen = [];
+
+  try {
+    watchConfig(next => {
+      seen.push(next.retrieval.topK);
+    }, configPath);
+    await delay(25);
+
+    saveConfig({ dataDir: dir, indexPath: path.join(dir, 'index.sqlite'), retrieval: { topK: 6 } }, configPath);
+    await waitFor(() => seen.length === 1);
+    await delay(100);
+    assert.deepEqual(seen, [6]);
+
+    saveConfig({ dataDir: dir, indexPath: path.join(dir, 'index.sqlite'), retrieval: { topK: 7 } }, configPath);
+    await waitFor(() => seen.length === 2);
+    await delay(100);
+    assert.deepEqual(seen, [6, 7]);
+  } finally {
+    stopWatching();
+  }
+});
+
+test('config watcher attaches when config file does not exist yet', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-watch-missing-'));
+  const configPath = path.join(dir, 'config.json');
+  const seen = [];
+
+  try {
+    watchConfig(next => {
+      seen.push(next.retrieval.topK);
+    }, configPath);
+    await delay(25);
+
+    saveConfig({ dataDir: dir, indexPath: path.join(dir, 'index.sqlite'), retrieval: { topK: 8 } }, configPath);
+    await waitFor(() => seen.length === 1);
+    assert.deepEqual(seen, [8]);
+  } finally {
+    stopWatching();
+  }
+});
+
+async function waitFor(predicate) {
+  for (let i = 0; i < 30; i += 1) {
+    if (predicate()) return;
+    await delay(25);
+  }
+  throw new Error('condition not met');
+}
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}

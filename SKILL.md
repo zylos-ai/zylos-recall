@@ -118,7 +118,11 @@ current list in `config.json` so future default-list additions will not
 auto-apply to that install. Corpus changes take effect at the next reindex.
 The retrieval pipeline, paths, and ports are intentionally not settable from
 one-line commands.
-When a running service already watches the config file, saved changes reload
-the config and restart runtime after the file-change event. The hook client
-reads `service.timeoutMs` each turn, so timeout changes affect new hook calls
-immediately. Reranker warmup happens on the next service runtime start/restart.
+The service watches the config directory, so creating or replacing
+`config.json` reloads it once after duplicate filesystem events settle and
+restarts runtime. The hook client reads `service.timeoutMs` each turn, so
+timeout changes affect new hook calls immediately. Reranker warmup happens on
+the next service runtime start/restart. Setting `enabled` to `false` stops the
+PM2-managed service cleanly; set it back to `true` and run
+`pm2 start zylos-recall` to re-enable it because the stopped process no longer
+has a live config watcher.

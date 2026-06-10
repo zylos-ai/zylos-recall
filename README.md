@@ -268,12 +268,14 @@ npx zylos-recall config set filter.provider rerank
 npx zylos-recall config set filter.provider none
 ```
 
-Apply semantics: if the config file existed when the running service started,
-the service's config watcher reloads it and restarts runtime after the file
-change event. If the file did not exist at service start, restart
-`zylos-recall` to apply service-side changes. The hook client reads config each
-turn, so `service.timeoutMs` affects new hook calls immediately; reranker model
-warmup happens on the next service runtime start/restart.
+Apply semantics: the running service watches the config directory, so creating
+or replacing `config.json` reloads it once after duplicate filesystem events
+settle and restarts runtime. The hook client reads config each turn, so
+`service.timeoutMs` affects new hook calls immediately; reranker model warmup
+happens on the next service runtime start/restart. Setting `enabled` to `false`
+stops the PM2-managed service cleanly; set it back to `true` and run
+`pm2 start zylos-recall` to re-enable it because the stopped process no longer
+has a live config watcher.
 
 The install/upgrade hooks register `src/retrieve.js` as a Claude
 `UserPromptSubmit` hook. The hook client fails open and only emits

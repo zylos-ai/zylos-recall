@@ -130,6 +130,9 @@ export const DEFAULT_CONFIG = Object.freeze({
 
 let config = null;
 let configWatcher = null;
+let configWatchTimer = null;
+
+const CONFIG_WATCH_DEBOUNCE_MS = 50;
 
 export function expandHome(value) {
   if (typeof value !== 'string') return value;
@@ -309,21 +312,39 @@ export function saveConfig(newConfig, configPath = CONFIG_PATH) {
 }
 
 export function watchConfig(onChange, configPath = CONFIG_PATH) {
-  if (configWatcher) configWatcher.close();
-  if (!fs.existsSync(configPath)) return;
+  stopWatching();
 
-  configWatcher = fs.watch(configPath, (eventType) => {
+  const configDir = path.dirname(configPath);
+  const configFile = path.basename(configPath);
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+
+  configWatcher = fs.watch(configDir, (eventType, fileName) => {
     if (eventType !== 'change' && eventType !== 'rename') return;
-    try {
-      const next = loadConfig(configPath);
-      onChange?.(next);
-    } catch (err) {
-      console.error(`[recall] Config reload failed: ${err.message}`);
-    }
+    if (fileName && path.basename(String(fileName)) !== configFile) return;
+    if (!fs.existsSync(configPath)) return;
+    if (configWatchTimer) clearTimeout(configWatchTimer);
+    configWatchTimer = setTimeout(() => {
+      configWatchTimer = null;
+      if (!fs.existsSync(configPath)) return;
+      try {
+        const next = loadConfig(configPath);
+        onChange?.(next);
+      } catch (err) {
+        console.error(`[recall] Config reload failed: ${err.message}`);
+      }
+    }, CONFIG_WATCH_DEBOUNCE_MS);
+    configWatchTimer.unref?.();
+  });
+  configWatcher.on('error', (err) => {
+    console.error(`[recall] Config watcher failed: ${err.message}`);
   });
 }
 
 export function stopWatching() {
+  if (configWatchTimer) {
+    clearTimeout(configWatchTimer);
+    configWatchTimer = null;
+  }
   if (configWatcher) {
     configWatcher.close();
     configWatcher = null;

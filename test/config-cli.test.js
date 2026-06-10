@@ -110,13 +110,14 @@ test('config set apply message reflects existing watcher reality', async () => {
   });
 
   const output = stdout.join('');
-  assert.match(output, /reload it and restart runtime after the file-change event/);
+  assert.match(output, /watch the config directory/);
+  assert.match(output, /duplicate file-change events settle/);
   assert.match(output, /service\.timeoutMs.*immediately/);
 
   const missingPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'recall-config-missing-')), 'config.json');
   assert.match(
     formatApplyMessage({ configPath: missingPath, existedBefore: false }),
-    /Restart zylos-recall to apply service-side changes/
+    /creating this file is applied/
   );
 });
 
