@@ -67,6 +67,8 @@ zylos-recall toc --full
 zylos-recall config get retrieval.topK
 zylos-recall config set retrieval.topK 12
 zylos-recall config set filter.provider rerank
+zylos-recall config deny list
+zylos-recall config deny add 'workspace/scratch/**'
 ```
 
 The service runs the configured hybrid retrieval pipeline and emits
@@ -108,8 +110,14 @@ zylos-recall config set filter.provider rerank
 zylos-recall config set filter.provider none
 ```
 
-Do not use the config CLI for corpus allow/deny lists, retrieval pipeline,
-paths, or ports; those are intentionally not settable from one-line commands.
+Use `zylos-recall config allow|deny list` and
+`config allow|deny add|remove <pattern>` to edit corpus lists one entry at a
+time; edits always write the complete effective list, removing a built-in
+secret-protection deny entry requires `--force`, and the first edit pins the
+current list in `config.json` so future default-list additions will not
+auto-apply to that install. Corpus changes take effect at the next reindex.
+The retrieval pipeline, paths, and ports are intentionally not settable from
+one-line commands.
 When a running service already watches the config file, saved changes reload
 the config and restart runtime after the file-change event. The hook client
 reads `service.timeoutMs` each turn, so timeout changes affect new hook calls

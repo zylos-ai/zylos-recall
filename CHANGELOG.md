@@ -7,7 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Default corpus denylist now excludes secret-named directories
+  (`**/*secret*/**`, `**/*token*/**`, `**/*credential*/**`, and password /
+  apikey / private-key variants) and credential-shaped filename stems plus
+  `*.pem` / `*.key`. Previously a markdown file under a directory named like
+  `secrets/` or `tokens/` inside an allowed tree was indexed and injectable.
+- Retrieval-log query previews now redact spaced `key: value` credentials,
+  `Bearer` tokens, JWTs, PEM blocks, and known provider token shapes
+  (AWS, Slack, GitHub, Google) in addition to `sk-` keys, and redaction runs
+  before the 200-character truncation so boundary-cut secrets cannot leak.
+- The configure and post-upgrade hooks write `config.json` with mode `0600`
+  (configure previously created it with the process umask while storing
+  collected secrets) and post-upgrade repairs a loose mode on every upgrade.
+- README configuration example now shows the complete default deny list and
+  warns that user-supplied arrays replace defaults wholesale; a truncated
+  copied example previously dropped the secret denials silently.
+
 ### Added
+- `zylos-recall config allow|deny list` and
+  `config allow|deny add|remove <pattern>` for item-level corpus list editing:
+  idempotent edits that always write the complete effective list, a pin
+  warning that default-list updates no longer auto-apply after the first edit,
+  and a `--force` requirement to remove built-in secret-protection deny
+  entries.
 - Hybrid retrieval stages: FTS5 BM25 `bm25Retrieve` plus reciprocal-rank
   fusion `rrfFuse`, with per-stage logs that include ranks/scores but no chunk
   text.

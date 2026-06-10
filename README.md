@@ -61,7 +61,50 @@ Edit `~/zylos/components/recall/config.json`:
       "workspace/**/docs/*.md",
       "workspace/**/CLAUDE.md"
     ],
-    "deny": ["**/.env", "**/.backup/**", "**/.zylos/**", "**/node_modules/**", "CLAUDE.md", "AGENTS.md", "ZYLOS.md"]
+    "deny": [
+      "**/.git/**",
+      "**/.backup/**",
+      "**/.zylos/**",
+      "**/node_modules/**",
+      "**/logs/**",
+      "**/*.log",
+      "**/.env",
+      "**/.env.*",
+      "**/*secret*",
+      "**/*secret*/**",
+      "**/*token*",
+      "**/*token*/**",
+      "**/*credential*",
+      "**/*credential*/**",
+      "**/*password*",
+      "**/*password*/**",
+      "**/*apikey*",
+      "**/*apikey*/**",
+      "**/*api-key*",
+      "**/*api-key*/**",
+      "**/*api_key*",
+      "**/*api_key*/**",
+      "**/*privatekey*",
+      "**/*privatekey*/**",
+      "**/*private-key*",
+      "**/*private-key*/**",
+      "**/*private_key*",
+      "**/*private_key*/**",
+      "**/*.pem",
+      "**/*.key",
+      "memory/identity.md",
+      "memory/state.md",
+      "memory/references.md",
+      "memory/archive/**",
+      "CLAUDE.md",
+      "AGENTS.md",
+      "ZYLOS.md",
+      "**/*.bak",
+      "**/*.backup",
+      "**/*.RETIRED",
+      "**/index.sqlite",
+      "**/index.sqlite-*"
+    ]
   },
   "embedder": {
     "provider": "local-onnx",
@@ -105,6 +148,13 @@ Edit `~/zylos/components/recall/config.json`:
 }
 ```
 
+> **Warning:** arrays in `config.json` **replace** the built-in defaults
+> entirely — they are not merged. If you customize `corpus.allow` or
+> `corpus.deny`, start from the complete default list (shown above for `deny`);
+> omitting entries silently removes those protections. Prefer
+> `zylos-recall config allow|deny add|remove` below, which always writes the
+> complete list for you.
+
 ## Usage
 
 ```bash
@@ -115,6 +165,12 @@ npx zylos-recall config get retrieval.topK
 # Adjust safe runtime knobs without hand-editing JSON.
 npx zylos-recall config set retrieval.topK 12
 npx zylos-recall config set filter.provider rerank
+
+# Edit corpus allow/deny lists one entry at a time (no JSON hand-editing).
+npx zylos-recall config deny list
+npx zylos-recall config deny add 'workspace/scratch/**'
+npx zylos-recall config allow add 'notes/**/*.md'
+npx zylos-recall config allow remove 'notes/**/*.md'
 
 # Build or incrementally refresh the local index
 npx zylos-recall index
@@ -173,11 +229,33 @@ filter.keepK
 service.timeoutMs
 ```
 
-Structural settings such as corpus allow/deny lists, retrieval pipeline, paths,
-and ports are intentionally not settable from a one-line CLI command. Values
-are parsed by target type and then validated through the same config save path
-used by hooks; invalid values leave the config file untouched. Writes are
-atomic and create the config file with mode `0600`.
+Structural settings such as the retrieval pipeline, paths, and ports are
+intentionally not settable from a one-line CLI command. Values are parsed by
+target type and then validated through the same config save path used by
+hooks; invalid values leave the config file untouched. Writes are atomic and
+create the config file with mode `0600`.
+
+`zylos-recall config allow|deny list` prints the effective corpus list, and
+`config allow|deny add|remove <pattern>` edits it one entry at a time:
+
+```bash
+npx zylos-recall config deny add 'workspace/scratch/**'
+npx zylos-recall config deny remove 'workspace/scratch/**'
+```
+
+Add/remove is idempotent and order-preserving, and always writes the complete
+effective list — so a partial array can never silently drop default
+protections. Two consequences to know:
+
+- **Pinning:** your first list edit stores the complete current list in
+  `config.json`. Future zylos-recall releases that add new default entries will
+  not auto-apply to that install; re-add them manually if you want them.
+- **Guardrail:** removing a built-in secret-protection deny entry (for example
+  `**/*secret*` or `**/*.pem`) is refused unless you pass `--force`, because it
+  can expose credential-like files to indexing.
+
+Corpus list changes take effect at the next reindex (freshness watch/sweep or
+service restart).
 
 Two common recipes:
 
