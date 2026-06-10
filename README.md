@@ -108,6 +108,14 @@ Edit `~/zylos/components/recall/config.json`:
 ## Usage
 
 ```bash
+# Print the effective defaults-merged config, or one setting.
+npx zylos-recall config get
+npx zylos-recall config get retrieval.topK
+
+# Adjust safe runtime knobs without hand-editing JSON.
+npx zylos-recall config set retrieval.topK 12
+npx zylos-recall config set filter.provider rerank
+
 # Build or incrementally refresh the local index
 npx zylos-recall index
 
@@ -139,6 +147,55 @@ npx zylos-recall inspect --retrieval-log    # service/client retrieval.jsonl
 # Start the warm local retrieval service
 npm start
 ```
+
+## Config CLI
+
+`zylos-recall config get [<dot.path>]` prints the effective config after
+defaults are merged. Recall config does not contain secret keys; tests assert
+that stays true.
+
+`zylos-recall config set <dot.path> <value>` updates only allowlisted runtime
+knobs:
+
+```text
+enabled
+retrieval.topK
+retrieval.bm25TopK
+retrieval.rrfK
+retrieval.bm25AdmitTopN
+retrieval.threshold
+retrieval.maxTotalTokens
+retrieval.recencyWeight
+retrieval.tierPenalties.<tier>
+filter.provider
+filter.threshold
+filter.keepK
+service.timeoutMs
+```
+
+Structural settings such as corpus allow/deny lists, retrieval pipeline, paths,
+and ports are intentionally not settable from a one-line CLI command. Values
+are parsed by target type and then validated through the same config save path
+used by hooks; invalid values leave the config file untouched. Writes are
+atomic and create the config file with mode `0600`.
+
+Two common recipes:
+
+```bash
+# Adjust ambient candidate count.
+npx zylos-recall config set retrieval.topK 12
+
+# Toggle the gatekeeper reranker.
+npx zylos-recall config set filter.provider rerank
+npx zylos-recall config set filter.provider none
+```
+
+Apply semantics: if the config file existed when the running service started,
+the service's config watcher reloads it and restarts runtime after the file
+change event. If the file did not exist at service start, restart
+`zylos-recall` to apply service-side changes. The hook client reads config each
+turn, so `service.timeoutMs` affects new hook calls immediately; reranker model
+warmup happens on the next service runtime start/restart.
 
 The install/upgrade hooks register `src/retrieve.js` as a Claude
 `UserPromptSubmit` hook. The hook client fails open and only emits

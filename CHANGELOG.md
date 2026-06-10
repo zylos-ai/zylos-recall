@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retrieval overrides.
 - `zylos-recall toc` sqlite-only index table of contents grouped by metadata
   tier, with optional full section-title output.
+- `zylos-recall config get/set` for allowlisted runtime knobs, with dot-path
+  reads, typed value parsing, existing config validation, atomic writes, and
+  truthful apply-semantics messaging.
 - Truthful retrieval logging with per-stage candidate snapshots, free-gate drop
   accounting, and service/client JSONL records joined by normalized query hash.
 - `zylos-recall inspect --retrieval-log` for service/client retrieval log

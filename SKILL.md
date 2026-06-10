@@ -64,6 +64,9 @@ zylos-recall query "what did Felix decide about Discord VC?"
 zylos-recall retrieve "what did Felix decide about Discord VC?"
 zylos-recall recall "what did Felix decide about Discord VC?"
 zylos-recall toc --full
+zylos-recall config get retrieval.topK
+zylos-recall config set retrieval.topK 12
+zylos-recall config set filter.provider rerank
 ```
 
 The service runs the configured hybrid retrieval pipeline and emits
@@ -87,3 +90,27 @@ source, date, and chunk counts, while `--full` adds section titles.
 the service is unavailable. It prints plain hit blocks by default, not a
 `<retrieved-memory>` wrapper. Use `--format json` for structured
 `{source, section, date, scores, text}` output.
+
+## Runtime Knobs
+
+Use `zylos-recall config get [<dot.path>]` to inspect the effective
+defaults-merged config. Use `zylos-recall config set <dot.path> <value>` for
+allowlisted runtime knobs only.
+
+Common recipes:
+
+```bash
+# Ambient candidate count
+zylos-recall config set retrieval.topK 12
+
+# Gatekeeper reranker toggle
+zylos-recall config set filter.provider rerank
+zylos-recall config set filter.provider none
+```
+
+Do not use the config CLI for corpus allow/deny lists, retrieval pipeline,
+paths, or ports; those are intentionally not settable from one-line commands.
+When a running service already watches the config file, saved changes reload
+the config and restart runtime after the file-change event. The hook client
+reads `service.timeoutMs` each turn, so timeout changes affect new hook calls
+immediately. Reranker warmup happens on the next service runtime start/restart.
