@@ -19,6 +19,57 @@ export const SETTABLE_CONFIG_PATHS = Object.freeze([
 
 const EXACT_SETTERS = new Set(SETTABLE_CONFIG_PATHS.filter(path => !path.includes('<')));
 const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+
+export const CORPUS_LIST_NAMES = Object.freeze(['allow', 'deny']);
+
+// Default deny entries that exist to keep secrets and private memory out of
+// the index. `config deny remove` refuses these unless --force is given.
+export const PROTECTED_DENY_PATTERNS = Object.freeze(
+  DEFAULT_CONFIG.corpus.deny.filter(pattern =>
+    /secret|token|credential|password|apikey|api[-_]key|private[-_]?key|\.env|\.pem$|\.key$|identity\.md|state\.md|references\.md/i.test(pattern)
+  )
+);
+
+export function isProtectedDenyPattern(pattern) {
+  const normalized = String(pattern || '').toLowerCase();
+  return PROTECTED_DENY_PATTERNS.some(entry => entry.toLowerCase() === normalized);
+}
+
+export function modifyCorpusList(config, listName, action, pattern, { force = false } = {}) {
+  if (!CORPUS_LIST_NAMES.includes(listName)) {
+    throw new Error(`Unknown corpus list "${listName}". Use allow or deny.`);
+  }
+  const value = String(pattern || '').trim();
+  if (!value) throw new Error(`A non-empty glob pattern is required for corpus.${listName}`);
+
+  const next = structuredClone(config);
+  const list = next.corpus[listName];
+  const index = list.findIndex(entry => entry.toLowerCase() === value.toLowerCase());
+
+  if (action === 'add') {
+    if (index >= 0) {
+      return { config: next, changed: false, note: `Pattern already present in corpus.${listName}: ${list[index]}` };
+    }
+    list.push(value);
+    return { config: next, changed: true, note: `Added "${value}" to corpus.${listName} (${list.length} entries).` };
+  }
+
+  if (action === 'remove') {
+    if (index < 0) {
+      return { config: next, changed: false, note: `Pattern not found in corpus.${listName}: ${value}` };
+    }
+    if (listName === 'deny' && isProtectedDenyPattern(value) && !force) {
+      throw new Error(
+        `"${value}" is a built-in secret-protection deny pattern; removing it can expose credential-like files to indexing. ` +
+        'Re-run with --force if you really intend this.'
+      );
+    }
+    list.splice(index, 1);
+    return { config: next, changed: true, note: `Removed "${value}" from corpus.${listName} (${list.length} entries).` };
+  }
+
+  throw new Error(`Unknown corpus list action "${action || '(missing)'}". Use add, remove, or list.`);
+}
 export function getConfigValue(config, dotPath = null) {
   if (!dotPath) return config;
   const { parent, key } = locateParent(config, dotPath, { requireExisting: true });

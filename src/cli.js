@@ -10,6 +10,7 @@ import {
   configFileExisted,
   formatApplyMessage,
   getConfigValue,
+  modifyCorpusList,
   setConfigValue
 } from './lib/config-cli.js';
 import {
@@ -29,6 +30,9 @@ function usage() {
   zylos-recall toc [--config <path>] [--tier <type>] [--full] [--format text|json]
   zylos-recall config get [--config <path>] [<dot.path>]
   zylos-recall config set [--config <path>] <dot.path> <value>
+  zylos-recall config allow|deny list [--config <path>]
+  zylos-recall config allow|deny add [--config <path>] <pattern>
+  zylos-recall config allow|deny remove [--config <path>] [--force] <pattern>
   zylos-recall inspect [--session <id|latest>] [--last <n>] [--full]
   zylos-recall inspect --retrieval-log [<path>] [--last <n>]
 `;
@@ -54,6 +58,7 @@ export function parseArgs(argv) {
     else if (value === '--session') options.session = args.shift();
     else if (value === '--last') options.last = Number(args.shift());
     else if (value === '--full') options.full = true;
+    else if (value === '--force') options.force = true;
     else if (value === '--retrieval-log') {
       options.retrievalLog = true;
       if (args[0] && !args[0].startsWith('--')) options.retrievalLogPath = args.shift();
@@ -114,6 +119,26 @@ export async function runCli({
       const next = setConfigValue(config, dotPath, rawValue);
       configSaver(next, configPath);
       stdout.write(`${formatApplyMessage({ configPath, existedBefore })}\n`);
+      return;
+    }
+    if (subcommand === 'allow' || subcommand === 'deny') {
+      const action = positionals[1];
+      if (action === 'list') {
+        const config = configLoader(options.configPath);
+        stdout.write(`${JSON.stringify(config.corpus[subcommand], null, 2)}\n`);
+        return;
+      }
+      const existedBefore = configExists(configPath);
+      const config = configLoader(options.configPath);
+      const result = modifyCorpusList(config, subcommand, action, positionals[2], { force: options.force });
+      if (!result.changed) {
+        stdout.write(`${result.note} No changes saved.\n`);
+        return;
+      }
+      configSaver(result.config, configPath);
+      stdout.write(`${result.note}\n`);
+      stdout.write(`${formatApplyMessage({ configPath, existedBefore })} Corpus changes take effect at the next reindex (freshness watch/sweep or service restart).\n`);
+      stdout.write(`Note: your config now stores the complete corpus.${subcommand} array; future updates to the built-in default list will not auto-apply to this install.\n`);
       return;
     }
     throw new Error(`Unknown config command: ${subcommand || '(missing)'}\n${usage()}`);
