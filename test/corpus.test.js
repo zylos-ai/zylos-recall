@@ -50,3 +50,30 @@ test('walks allowlisted markdown and applies hard deny rules', () => {
   assert.equal(chunks.find(chunk => chunk.source === '.claude/skills/example/references/guide.md').metadata.type, 'skill');
   assert.equal(chunks.find(chunk => chunk.source === 'workspace/repo/docs/guide.md').metadata.type, 'doc');
 });
+
+test('denies secret-named directories and credential-named files inside allowed trees', () => {
+  // The temp prefix must not contain a denied stem (secret/token/...): deny
+  // globs also match the absolute path, so a stem in the root dir name would
+  // deny every file in the fixture.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-corpus-sensitive-'));
+  fs.mkdirSync(path.join(root, 'memory/reference/secret-stuff'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'memory/reference/tokens'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'memory/reference/Credentials'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'memory/reference/project'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'memory/reference/secret-stuff/notes.md'), '# Notes\n\nFiles under a secret-named directory must never be indexed even in allowed trees.');
+  fs.writeFileSync(path.join(root, 'memory/reference/tokens/notes.md'), '# Notes\n\nFiles under a token-named directory must never be indexed even in allowed trees.');
+  fs.writeFileSync(path.join(root, 'memory/reference/Credentials/setup.md'), '# Setup\n\nCase-insensitive credential directory names must also stay excluded from indexing.');
+  fs.writeFileSync(path.join(root, 'memory/reference/project/password.md'), '# Password\n\nCredential-named markdown files must stay excluded from indexing.');
+  fs.writeFileSync(path.join(root, 'memory/reference/project/api-key-rotation.md'), '# Rotation\n\nApi key named files must stay excluded from indexing.');
+  fs.writeFileSync(path.join(root, 'memory/reference/project/privatekey-backup.md'), '# Key\n\nPrivate key named files must stay excluded from indexing.');
+  fs.writeFileSync(path.join(root, 'memory/reference/project/notes.md'), '# Notes\n\nA benign markdown file in the same allowed tree must still be indexed normally.');
+
+  const config = structuredClone(DEFAULT_CONFIG);
+  config.corpus.roots = [root];
+  config.chunking.minTokens = 3;
+
+  const files = [...walkCorpusFiles(config)]
+    .map(entry => path.relative(root, entry.filePath).split(path.sep).join('/'))
+    .sort();
+  assert.deepEqual(files, ['memory/reference/project/notes.md']);
+});

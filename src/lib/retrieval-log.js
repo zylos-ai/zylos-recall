@@ -2,7 +2,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { sha256 } from './hash.js';
 
-const SECRET_RE = /\b(?:sk-[A-Za-z0-9_-]+|[A-Za-z0-9_-]*token[A-Za-z0-9_-]*[:=][^\s]+|[A-Za-z0-9_-]*secret[A-Za-z0-9_-]*[:=][^\s]+)\b/gi;
+// Applied in order; PEM/JWT/bearer blocks first so structured tokens are
+// caught whole before the generic key:value pattern slices them.
+const SECRET_PATTERNS = [
+  /-----BEGIN[A-Z ]*-----[A-Za-z0-9+/=\s]+?(?:-----END[A-Z ]*-----|$)/g,
+  /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g,
+  /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
+  /\bsk-[A-Za-z0-9_-]+\b/g,
+  /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
+  /\bxox[a-z]-[A-Za-z0-9-]{8,}/gi,
+  /\bgh[pousr]_[A-Za-z0-9]{16,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{16,}\b/g,
+  /\bAIza[0-9A-Za-z_-]{30,}\b/g,
+  /\b[A-Za-z0-9_-]*(?:token|secret|password|passwd|pwd|credential|apikey|api[-_]key|private[-_]?key|authorization)[A-Za-z0-9_-]*\s*[:=]\s*\S+/gi
+];
 
 export function appendRetrievalLog(config, { query, selected = [], stages = [], durationMs, injected }) {
   const record = {
@@ -46,8 +59,13 @@ export function appendClientRetrievalLog(config, { query, outcome, durationMs })
 }
 
 export function redactQuery(query) {
-  const compact = query.replace(/\s+/g, ' ').trim().slice(0, 200);
-  return compact.replace(SECRET_RE, '[redacted]');
+  // Redact before truncating so a credential cut at the 200-char boundary
+  // cannot leave a partial value the patterns no longer match.
+  let compact = query.replace(/\s+/g, ' ').trim();
+  for (const pattern of SECRET_PATTERNS) {
+    compact = compact.replace(pattern, '[redacted]');
+  }
+  return compact.slice(0, 200);
 }
 
 function roundScore(value) {

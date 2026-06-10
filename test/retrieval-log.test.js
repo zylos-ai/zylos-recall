@@ -12,6 +12,40 @@ test('redacts likely secrets from query previews', () => {
   assert.equal(redactQuery('token=abc123 should not be exposed'), '[redacted] should not be exposed');
 });
 
+test('redacts spaced key-value, bearer, jwt, pem, and known provider token shapes', () => {
+  assert.equal(redactQuery('my password: hunter2 leaked'), 'my [redacted] leaked');
+  assert.equal(redactQuery('the token: abcdef should hide'), 'the [redacted] should hide');
+  assert.equal(redactQuery('set api_key = abc123 now'), 'set [redacted] now');
+  // Bearer pattern redacts the credential, then the authorization key-value
+  // pattern collapses the remaining "Authorization: [redacted]" pair.
+  assert.equal(redactQuery('header Authorization: Bearer abc.def-ghi_jkl please'), 'header [redacted] please');
+  assert.equal(
+    redactQuery('jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.sig-part here'),
+    'jwt [redacted] here'
+  );
+  assert.equal(
+    redactQuery('-----BEGIN RSA PRIVATE KEY----- MIIEowIBAAKCAQEA7 -----END RSA PRIVATE KEY----- pasted'),
+    '[redacted] pasted'
+  );
+  assert.equal(redactQuery('aws AKIAIOSFODNN7EXAMPLE in logs'), 'aws [redacted] in logs');
+  assert.equal(redactQuery('slack xoxb-1234567890-abcdef in config'), 'slack [redacted] in config');
+  assert.equal(redactQuery('gh ghp_abcdefghijklmnop1234 found'), 'gh [redacted] found');
+  assert.equal(redactQuery('pat github_pat_22ABCDEF0123456789 found'), 'pat [redacted] found');
+});
+
+test('keeps benign technical queries unredacted', () => {
+  assert.equal(redactQuery('what is the retrieval threshold: 0.65 doing'), 'what is the retrieval threshold: 0.65 doing');
+  assert.equal(redactQuery('how does the tokenizer split markdown sections'), 'how does the tokenizer split markdown sections');
+  assert.equal(redactQuery('where are session tier penalties configured'), 'where are session tier penalties configured');
+});
+
+test('redacts before truncating so boundary-cut credentials never leak', () => {
+  const padding = 'context '.repeat(24); // 192 chars
+  const preview = redactQuery(`${padding}password=supersecretvalue1234567890`);
+  assert.equal(preview.includes('supersecret'), false);
+  assert.equal(preview.length <= 200, true);
+});
+
 test('appends retrieval metadata without chunk text', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-log-'));
   const config = structuredClone(DEFAULT_CONFIG);

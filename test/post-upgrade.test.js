@@ -59,4 +59,43 @@ test('post-upgrade preserves existing timeout and threshold values', () => {
   assert.deepEqual(migrated.retrieval.tierPenalties, { session: 0.05 });
   assert.deepEqual(migrated.corpus.allow, ['custom/**/*.md']);
   assert.deepEqual(migrated.corpus.deny, ['custom-deny/**/*.md']);
+  assert.equal(fs.statSync(configPath).mode & 0o777, 0o600);
+});
+
+test('post-upgrade repairs a loose config mode even without migrations', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-post-upgrade-mode-'));
+  const dataDir = path.join(home, 'zylos/components/recall');
+  fs.mkdirSync(dataDir, { recursive: true });
+  const configPath = path.join(dataDir, 'config.json');
+  const fullConfig = {
+    enabled: true,
+    dataDir,
+    indexPath: path.join(dataDir, 'index.sqlite'),
+    retrieval: {
+      bm25TopK: 10,
+      rrfK: 60,
+      bm25AdmitTopN: 2,
+      tierPenalties: { session: 0.05 }
+    },
+    freshness: {
+      enabled: true,
+      watch: true,
+      sweep: true,
+      debounceMs: 1000,
+      sweepIntervalMs: 300000
+    }
+  };
+  fs.writeFileSync(configPath, JSON.stringify(fullConfig, null, 2) + '\n', { mode: 0o644 });
+  const before = fs.readFileSync(configPath, 'utf8');
+
+  const result = spawnSync(process.execPath, ['hooks/post-upgrade.js'], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, HOME: home },
+    encoding: 'utf8'
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /No config migrations needed/);
+  assert.equal(fs.readFileSync(configPath, 'utf8'), before);
+  assert.equal(fs.statSync(configPath).mode & 0o777, 0o600);
 });

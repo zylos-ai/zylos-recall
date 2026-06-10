@@ -43,9 +43,11 @@ function readJsonFile(filePath, fallback) {
 }
 
 function writeJsonFile(filePath, value) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.mkdirSync(path.dirname(filePath), { recursive: true, mode: 0o700 });
   const tmpPath = `${filePath}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(value, null, 2) + '\n');
+  fs.writeFileSync(tmpPath, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
+  // mode above only applies on creation; force it in case a stale tmp exists
+  fs.chmodSync(tmpPath, 0o600);
   fs.renameSync(tmpPath, filePath);
 }
 
