@@ -96,6 +96,8 @@ test('inspectRetrievalLog renders new and legacy retrieval log records', () => {
       injected: false,
       stages: [
         { stage: 'denseRetrieve', count: 1, candidates: [{ id: 'a', source: 'memory/reference/a.md', score: 0.912346 }] },
+        { stage: 'bm25Retrieve', count: 1, candidates: [{ id: 'b', source: 'memory/reference/b.md', bm25Score: 8.25 }] },
+        { stage: 'rrfFuse', count: 2, candidates: [{ id: 'a', denseRank: 1, bm25Rank: null, fusedScore: 0.016393 }, { id: 'b', denseRank: null, bm25Rank: 1, fusedScore: 0.016393 }] },
         { stage: 'rerankFilter', enabled: false, count: 1 },
         { stage: 'freeGates', selected: 0, survivors: [], drops: { belowThreshold: 1 }, candidates: [{ id: 'a', dropReason: 'belowThreshold' }] },
         { stage: 'assemble', injected: false }
@@ -117,6 +119,8 @@ test('inspectRetrievalLog renders new and legacy retrieval log records', () => {
   assert.ok(report.includes('service/client: 2/1'));
   assert.ok(report.includes('SERVICE legacyhash injected=true'));
   assert.ok(report.includes('denseRetrieve count=2 candidates=(legacy-count-only)'));
+  assert.ok(report.includes('bm25Retrieve count=1 candidates=b@8.25'));
+  assert.ok(report.includes('rrfFuse count=2 candidates=a[d=1,b=-]@0.016393,b[d=-,b=1]@0.016393'));
   assert.ok(report.includes('freeGates selected=0 survivors=(none) drops=belowThreshold:1 candidates=a:belowThreshold'));
   assert.ok(report.includes('CLIENT servicehash outcome=timeout duration=1001ms'));
 });

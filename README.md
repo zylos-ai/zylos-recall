@@ -65,8 +65,11 @@ Edit `~/zylos/components/recall/config.json`:
     "dimension": 384
   },
   "retrieval": {
-    "pipeline": ["denseRetrieve", "rerankFilter", "freeGates", "assemble"],
+    "pipeline": ["denseRetrieve", "bm25Retrieve", "rrfFuse", "freeGates", "assemble"],
     "topK": 5,
+    "bm25TopK": 10,
+    "rrfK": 60,
+    "bm25AdmitTopN": 2,
     "threshold": 0.35,
     "maxTotalTokens": 1500,
     "chunkTokens": 350,
@@ -125,6 +128,15 @@ The install/upgrade hooks register `src/retrieve.js` as a Claude
 `additionalContext` when the service returns a non-empty `<retrieved-memory>`
 block. C4 channel and routing envelopes are stripped before retrieval, so only
 the current user message is embedded.
+
+Retrieval uses a hybrid pipeline by default: dense vector search, FTS5 BM25
+keyword search, reciprocal rank fusion, free gates, then assembly. Cosine
+thresholds still gate dense-found candidates. BM25-only candidates are admitted
+only from the narrow `bm25AdmitTopN` rescue set, and the rest are logged as
+`bm25WeakNoDense`. Existing configs keep their configured `retrieval.pipeline`
+on upgrade; add `bm25Retrieve` and `rrfFuse` manually to opt in. The BM25
+index uses SQLite FTS5 `unicode61`, which does not segment CJK text well, so
+dense retrieval remains the main path for Chinese/Japanese/Korean content.
 
 The service listens before model warmup/indexing finishes, so hooks fail open
 instead of blocking startup while models load. Freshness is maintained by

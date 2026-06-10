@@ -6,6 +6,8 @@ import path from 'node:path';
 
 export const STAGES = Object.freeze({
   denseRetrieve,
+  bm25Retrieve,
+  rrfFuse,
   rerankFilter,
   freeGates,
   assemble
@@ -25,6 +27,7 @@ export async function retrieveMemory(config, query, options = {}) {
     reranker: options.reranker || null,
     store,
     candidates: [],
+    retrieverLists: {},
     selected: [],
     additionalContext: '',
     log: []
@@ -52,10 +55,104 @@ export async function retrieveMemory(config, query, options = {}) {
 export async function denseRetrieve(ctx) {
   const [vector] = await ctx.embedder.embed([ctx.query], 'query');
   ctx.candidates = ctx.store.search(vector, { topK: ctx.config.retrieval.topK });
+  ctx.retrieverLists.dense = ctx.candidates;
   ctx.log.push({
     stage: 'denseRetrieve',
     count: ctx.candidates.length,
     candidates: ctx.candidates.map(candidateSnapshot)
+  });
+}
+
+export function bm25Retrieve(ctx) {
+  const topK = ctx.config.retrieval.bm25TopK ?? 10;
+  let candidates = [];
+  let failOpenReason = null;
+  try {
+    candidates = typeof ctx.store.searchText === 'function'
+      ? ctx.store.searchText(ctx.query, { topK })
+      : [];
+    if (!Array.isArray(candidates)) candidates = [];
+  } catch (err) {
+    failOpenReason = err.message;
+  }
+  ctx.retrieverLists.bm25 = candidates;
+  const logEntry = {
+    stage: 'bm25Retrieve',
+    count: candidates.length,
+    candidates: candidates.map(candidate => ({
+      id: candidate.id,
+      source: candidate.source,
+      bm25Score: roundScore(candidate.bm25Score)
+    }))
+  };
+  if (failOpenReason) {
+    logEntry.failOpen = true;
+    logEntry.reason = failOpenReason;
+  }
+  ctx.log.push(logEntry);
+}
+
+export function rrfFuse(ctx) {
+  const lists = Object.entries(ctx.retrieverLists || {})
+    .filter(([, candidates]) => Array.isArray(candidates) && candidates.length > 0);
+  if (!lists.length) {
+    ctx.candidates = [];
+    ctx.log.push({ stage: 'rrfFuse', count: 0, candidates: [] });
+    return;
+  }
+
+  const k = ctx.config.retrieval.rrfK ?? 60;
+  const byId = new Map();
+  for (const [name, candidates] of lists) {
+    for (let index = 0; index < candidates.length; index += 1) {
+      const candidate = candidates[index];
+      const rank = index + 1;
+      const existing = byId.get(candidate.id) || {
+        ...candidate,
+        score: undefined,
+        bm25Score: undefined,
+        fusedScore: 0
+      };
+      existing.fusedScore += 1 / (k + rank);
+      if (name === 'dense') {
+        existing.score = candidate.score;
+        existing.denseRank = rank;
+      } else if (name === 'bm25') {
+        existing.bm25Score = candidate.bm25Score;
+        existing.bm25Rank = rank;
+      }
+      byId.set(candidate.id, {
+        ...existing,
+        ...candidate,
+        score: existing.score,
+        bm25Score: existing.bm25Score,
+        denseRank: existing.denseRank,
+        bm25Rank: existing.bm25Rank,
+        fusedScore: existing.fusedScore
+      });
+    }
+  }
+
+  const maxPossible = lists.length / (k + 1);
+  ctx.candidates = Array.from(byId.values()).map(candidate => ({
+    ...candidate,
+    normalizedFused: maxPossible > 0 ? candidate.fusedScore / maxPossible : 0
+  })).sort((a, b) =>
+    b.normalizedFused - a.normalizedFused ||
+    (b.score ?? -Infinity) - (a.score ?? -Infinity) ||
+    (b.bm25Score ?? -Infinity) - (a.bm25Score ?? -Infinity) ||
+    b.mtime - a.mtime
+  );
+
+  ctx.log.push({
+    stage: 'rrfFuse',
+    count: ctx.candidates.length,
+    candidates: ctx.candidates.map(candidate => ({
+      id: candidate.id,
+      denseRank: candidate.denseRank ?? null,
+      bm25Rank: candidate.bm25Rank ?? null,
+      fusedScore: roundScore(candidate.fusedScore)
+    }))
   });
 }
 
@@ -132,9 +229,17 @@ export function freeGates(ctx) {
   const decisions = [];
 
   for (const candidate of ctx.candidates) {
-    if (candidate.score < threshold) {
+    const hasDenseScore = typeof candidate.score === 'number';
+    if (hasDenseScore && candidate.score < threshold) {
       decisions.push({ id: candidate.id, dropReason: 'belowThreshold' });
       continue;
+    }
+    if (!hasDenseScore) {
+      const admitTopN = ctx.config.retrieval.bm25AdmitTopN ?? 2;
+      if (typeof candidate.bm25Rank !== 'number' || candidate.bm25Rank > admitTopN) {
+        decisions.push({ id: candidate.id, dropReason: 'bm25WeakNoDense' });
+        continue;
+      }
     }
     if (isStaleCandidate(ctx.config, candidate)) {
       decisions.push({ id: candidate.id, dropReason: 'stale' });
@@ -147,7 +252,7 @@ export function freeGates(ctx) {
     seenHashes.add(candidate.hash);
     const ageDays = Math.max(0, (now - candidate.mtime) / 86_400_000);
     const recencyBoost = recencyWeight / (1 + ageDays / 30);
-    const rankScore = candidate.rerankScore ?? candidate.score;
+    const rankScore = candidate.normalizedFused ?? candidate.rerankScore ?? candidate.score;
     const passed = {
       ...candidate,
       rankScore,

@@ -125,7 +125,9 @@ Retrieval is **not** a fixed function; it's a config-ordered list of stages, eac
 expand → retrieve[1..N] → merge → gate → rank → assemble
 ```
 
-- current pipeline: `denseRetrieve(top-K) → rerankFilter(optional/no-op by default) → freeGates(threshold/dedup/recency/budget) → assemble(<retrieved-memory>)`.
+- current pipeline: `denseRetrieve(top-K) → bm25Retrieve(top-K) → rrfFuse → freeGates(threshold/dedup/recency/budget) → assemble(<retrieved-memory>)`.
+- `rerankFilter` remains a registered optional precision stage. Existing
+  configs can insert it before `freeGates`; the new default leaves it out.
 - Later (no rewrite — just register stages): `queryExpand`, `applicabilityRetrieve` (routes on `metadata.applies_when`/intent), `quota`/`MMR` (reserve guidance slots), `alwaysOnCore`.
 - Because every stage reads/writes the same metadata-rich candidate list, the "knowledge vs guidance / similarity vs applicability" distinction we discussed becomes *additional stages*, not a new engine.
 
@@ -137,8 +139,9 @@ expand → retrieve[1..N] → merge → gate → rank → assemble
 {
   "embedder": { "provider": "local-onnx", "model": "multilingual-e5-small" },
   "retrieval": {
-    "pipeline": ["denseRetrieve", "rerankFilter", "freeGates", "assemble"],
-    "topK": 5, "threshold": 0.35, "maxTotalTokens": 1500, "chunkTokens": 350
+    "pipeline": ["denseRetrieve", "bm25Retrieve", "rrfFuse", "freeGates", "assemble"],
+    "topK": 5, "bm25TopK": 10, "rrfK": 60, "bm25AdmitTopN": 2,
+    "threshold": 0.35, "maxTotalTokens": 1500, "chunkTokens": 350
   },
   "filter": { "provider": "none", "maxPassageTokens": 128 },
   "corpus": { "roots": ["..."], "allow": ["..."], "deny": ["..."] }

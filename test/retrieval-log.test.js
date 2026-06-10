@@ -25,6 +25,11 @@ test('appends retrieval metadata without chunk text', () => {
       id: 'alpha',
       source: 'memory/reference/projects.md',
       score: 0.91234567,
+      bm25Score: 6.5432109,
+      denseRank: 1,
+      bm25Rank: 2,
+      fusedScore: 0.03252247,
+      normalizedFused: 0.99193548,
       rerankScore: 0.81234567,
       rankScore: 0.81234567,
       finalScore: 0.93456789,
@@ -39,6 +44,11 @@ test('appends retrieval metadata without chunk text', () => {
   assert.equal(parsed.queryHash, sha256('alpha project details'));
   assert.equal(parsed.queryPreview, 'alpha project details');
   assert.equal(parsed.selected[0].score, 0.912346);
+  assert.equal(parsed.selected[0].bm25Score, 6.543211);
+  assert.equal(parsed.selected[0].denseRank, 1);
+  assert.equal(parsed.selected[0].bm25Rank, 2);
+  assert.equal(parsed.selected[0].fusedScore, 0.032522);
+  assert.equal(parsed.selected[0].normalizedFused, 0.991935);
   assert.equal(parsed.selected[0].rerankScore, 0.812346);
   assert.equal(parsed.selected[0].rankScore, 0.812346);
   assert.equal(parsed.selected[0].finalScore, 0.934568);

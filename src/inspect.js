@@ -208,6 +208,12 @@ function formatStage(stage) {
   if (stage.stage === 'denseRetrieve') {
     return `denseRetrieve count=${stage.count ?? stage.candidates ?? 0} candidates=${formatCandidateList(stage.candidates, 'score')}`;
   }
+  if (stage.stage === 'bm25Retrieve') {
+    return `bm25Retrieve count=${stage.count ?? stage.candidates ?? 0} candidates=${formatCandidateList(stage.candidates, 'bm25Score')}`;
+  }
+  if (stage.stage === 'rrfFuse') {
+    return `rrfFuse count=${stage.count ?? stage.candidates ?? 0} candidates=${formatRrfCandidates(stage.candidates)}`;
+  }
   if (stage.stage === 'rerankFilter') {
     if (stage.enabled === false) return `rerankFilter enabled=false count=${stage.count ?? stage.candidates ?? 0}`;
     return `rerankFilter scored=${stage.scored ?? '?'} kept=${stage.kept ?? '?'} threshold=${stage.threshold ?? '?'} candidates=${formatCandidateList(stage.candidates, 'rerankScore')}`;
@@ -240,6 +246,17 @@ function formatGateCandidates(candidates) {
   return candidates.map(candidate => {
     if (candidate.kept) return `${candidate.id}:kept`;
     return `${candidate.id}:${candidate.dropReason || 'dropped'}`;
+  }).join(',');
+}
+
+function formatRrfCandidates(candidates) {
+  if (!Array.isArray(candidates)) return '(legacy-count-only)';
+  if (!candidates.length) return '(none)';
+  return candidates.map(candidate => {
+    const denseRank = candidate.denseRank === null || candidate.denseRank === undefined ? '-' : candidate.denseRank;
+    const bm25Rank = candidate.bm25Rank === null || candidate.bm25Rank === undefined ? '-' : candidate.bm25Rank;
+    const fused = candidate.fusedScore === null || candidate.fusedScore === undefined ? '' : `@${candidate.fusedScore}`;
+    return `${candidate.id || '?'}[d=${denseRank},b=${bm25Rank}]${fused}`;
   }).join(',');
 }
 

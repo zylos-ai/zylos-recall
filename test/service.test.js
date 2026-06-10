@@ -47,6 +47,10 @@ class FakeStore {
     }];
   }
 
+  searchText() {
+    return [];
+  }
+
   close() {}
 }
 

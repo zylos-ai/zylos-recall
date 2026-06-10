@@ -18,6 +18,10 @@ test('loads defaults when config file is absent', () => {
   assert.equal(config.filter.model, 'Xenova/bge-reranker-base');
   assert.equal(config.filter.dtype, 'q8');
   assert.equal(config.filter.maxPassageTokens, 128);
+  assert.deepEqual(config.retrieval.pipeline, ['denseRetrieve', 'bm25Retrieve', 'rrfFuse', 'freeGates', 'assemble']);
+  assert.equal(config.retrieval.bm25TopK, 10);
+  assert.equal(config.retrieval.rrfK, 60);
+  assert.equal(config.retrieval.bm25AdmitTopN, 2);
 });
 
 test('rejects unsupported v1 providers', () => {
@@ -38,7 +42,13 @@ test('accepts rerank filter config and rejects invalid rerank values', () => {
     corpus: { roots: ['/tmp'], allow: [], deny: [], maxFileBytes: 1 },
     chunking: { targetTokens: 10, minTokens: 1, maxTokens: 20, overlapRatio: 0.1 },
     embedder: { provider: 'local-onnx', dimension: 384 },
-    retrieval: { pipeline: ['denseRetrieve', 'rerankFilter', 'freeGates', 'assemble'], topK: 5 },
+    retrieval: {
+      pipeline: ['denseRetrieve', 'rerankFilter', 'freeGates', 'assemble'],
+      topK: 5,
+      bm25TopK: 10,
+      rrfK: 60,
+      bm25AdmitTopN: 2
+    },
     service: { host: '127.0.0.1', port: 37537, timeoutMs: 1000 },
     freshness: { enabled: true, debounceMs: 0, sweepIntervalMs: 0 },
     filter: {

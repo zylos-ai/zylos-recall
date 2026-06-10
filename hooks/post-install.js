@@ -75,8 +75,11 @@ const INITIAL_CONFIG = {
     cacheDir: path.join(DATA_DIR, 'models')
   },
   retrieval: {
-    pipeline: ['denseRetrieve', 'freeGates', 'assemble'],
+    pipeline: ['denseRetrieve', 'bm25Retrieve', 'rrfFuse', 'freeGates', 'assemble'],
     topK: 5,
+    bm25TopK: 10,
+    rrfK: 60,
+    bm25AdmitTopN: 2,
     threshold: 0.35,
     maxTotalTokens: 1500,
     chunkTokens: 350,

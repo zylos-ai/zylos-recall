@@ -8,12 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Hybrid retrieval stages: FTS5 BM25 `bm25Retrieve` plus reciprocal-rank
+  fusion `rrfFuse`, with per-stage logs that include ranks/scores but no chunk
+  text.
+- FTS5 index maintenance, backfill, and fail-open text search in the sqlite
+  chunk store.
 - Truthful retrieval logging with per-stage candidate snapshots, free-gate drop
   accounting, and service/client JSONL records joined by normalized query hash.
 - `zylos-recall inspect --retrieval-log` for service/client retrieval log
   inspection with legacy-line compatibility.
 
 ### Changed
+- New default retrieval pipeline is
+  `denseRetrieve -> bm25Retrieve -> rrfFuse -> freeGates -> assemble`; existing
+  post-upgrade configs preserve their configured pipeline.
+- Free gates now admit BM25-only candidates only within
+  `retrieval.bm25AdmitTopN` and log other BM25-only drops as
+  `bm25WeakNoDense`.
 - Default hook timeout is now 1000ms for new installs/default configs; existing
   post-upgrade configs are preserved.
 

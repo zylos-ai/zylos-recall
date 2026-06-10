@@ -67,8 +67,11 @@ export const DEFAULT_CONFIG = Object.freeze({
     cacheDir: path.join(DATA_DIR, 'models')
   },
   retrieval: {
-    pipeline: ['denseRetrieve', 'rerankFilter', 'freeGates', 'assemble'],
+    pipeline: ['denseRetrieve', 'bm25Retrieve', 'rrfFuse', 'freeGates', 'assemble'],
     topK: 5,
+    bm25TopK: 10,
+    rrfK: 60,
+    bm25AdmitTopN: 2,
     threshold: 0.35,
     maxTotalTokens: 1500,
     chunkTokens: 350,
@@ -171,6 +174,18 @@ export function validateConfig(value) {
   }
   if (!Array.isArray(value.retrieval?.pipeline)) {
     errors.push('retrieval.pipeline must be an array');
+  }
+  if (!Number.isInteger(value.retrieval?.topK) || value.retrieval.topK <= 0) {
+    errors.push('retrieval.topK must be a positive integer');
+  }
+  if (!Number.isInteger(value.retrieval?.bm25TopK) || value.retrieval.bm25TopK <= 0) {
+    errors.push('retrieval.bm25TopK must be a positive integer');
+  }
+  if (!Number.isInteger(value.retrieval?.rrfK) || value.retrieval.rrfK <= 0) {
+    errors.push('retrieval.rrfK must be a positive integer');
+  }
+  if (!Number.isInteger(value.retrieval?.bm25AdmitTopN) || value.retrieval.bm25AdmitTopN < 0) {
+    errors.push('retrieval.bm25AdmitTopN must be a non-negative integer');
   }
   if (typeof value.service?.host !== 'string' || !value.service.host.trim()) {
     errors.push('service.host must be a non-empty string');
