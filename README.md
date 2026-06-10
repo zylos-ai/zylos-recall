@@ -117,6 +117,16 @@ npx zylos-recall query "discord voice channel decisions"
 # Run the gated retrieval pipeline and print a <retrieved-memory> block
 npx zylos-recall retrieve "discord voice channel decisions"
 
+# Deliberately search memory for a planning/review task. This prefers the warm
+# service, falls back to direct local index access if needed, and prints hits
+# without the hook-only <retrieved-memory> wrapper.
+npx zylos-recall recall "discord voice channel decisions"
+npx zylos-recall recall --top-k 15 --format json "discord voice channel decisions"
+
+# List indexed sources from sqlite without loading the embedder.
+npx zylos-recall toc
+npx zylos-recall toc --tier session --full
+
 # Audit what recall actually injected: pair each user prompt in the live
 # Claude Code session transcript with the <retrieved-memory> block it received
 # (or "stayed quiet"). Reads Claude's own transcript, so it reflects what truly
@@ -152,6 +162,14 @@ tagged in assembled context as session logs that may be superseded.
 Skill `references/` directories are watched when the service starts; if a new
 skill is installed while recall is already running, its references are still
 picked up by the periodic sweep and get direct watch coverage after restart.
+
+For deliberate agent use, `zylos-recall recall "<query>"` runs the same
+configured retrieval pipeline with tool-mode defaults (`topK:10`,
+`bm25TopK:15`, `maxTotalTokens:3000`) and server-side clamps (`topK` and
+`bm25TopK` max 25, `maxTotalTokens` max 6000). It returns text blocks or JSON
+hits shaped as `{source, section, date, scores, text}`. `zylos-recall toc`
+reads the chunk table directly from sqlite, groups indexed files by metadata
+tier, and stays compact by default; use `--full` to include section titles.
 
 The service listens before model warmup/indexing finishes, so hooks fail open
 instead of blocking startup while models load. Freshness is maintained by

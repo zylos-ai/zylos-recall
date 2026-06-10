@@ -62,9 +62,28 @@ dependencies: []
 zylos-recall index
 zylos-recall query "what did Felix decide about Discord VC?"
 zylos-recall retrieve "what did Felix decide about Discord VC?"
+zylos-recall recall "what did Felix decide about Discord VC?"
+zylos-recall toc --full
 ```
 
-The service runs the configured `denseRetrieve -> freeGates -> assemble`
-pipeline and emits `<retrieved-memory>` blocks through the registered
-`UserPromptSubmit` hook. Freshness is maintained by startup indexing,
-filesystem-change debounce where supported, and periodic corpus sweeps.
+The service runs the configured hybrid retrieval pipeline and emits
+`<retrieved-memory>` blocks through the registered `UserPromptSubmit` hook.
+Freshness is maintained by startup indexing, filesystem-change debounce where
+supported, and periodic corpus sweeps.
+
+## Deliberate Recall (Tool Face)
+
+Use `zylos-recall recall "<query>"` when memory should be consulted on purpose,
+especially at the kickoff of planning or review tasks, before concluding that
+"we never documented X", for cross-session or months-old questions, and after a
+session rotation when context feels thin.
+
+Use `zylos-recall toc` first when you do not know what exists. Use
+`zylos-recall recall` when you already know the topic or source shape. `toc`
+reads sqlite only and does not load the embedder; compact output lists tier,
+source, date, and chunk counts, while `--full` adds section titles.
+
+`recall` prefers the warm service and falls back to direct local retrieval if
+the service is unavailable. It prints plain hit blocks by default, not a
+`<retrieved-memory>` wrapper. Use `--format json` for structured
+`{source, section, date, scores, text}` output.

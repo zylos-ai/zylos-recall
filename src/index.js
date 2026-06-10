@@ -13,6 +13,7 @@ import { appendRetrievalLog } from './lib/retrieval-log.js';
 import { createReranker } from './lib/rerankers/index.js';
 import { retrieveMemory } from './lib/retriever.js';
 import { ChunkStore } from './lib/store.js';
+import { candidatePayload, configWithRetrievalOverrides, normalizeRetrievalOverrides } from './lib/tool-face.js';
 
 let config = null;
 let server = null;
@@ -131,7 +132,11 @@ export async function handleRetrieve(req, res) {
       sendJson(res, 200, { ok: true, additionalContext: '' });
       return;
     }
-    const result = await retrieveMemory(config, query, { embedder, reranker, store, storeInitialized: true });
+    const activeConfig = configWithRetrievalOverrides(
+      config,
+      normalizeRetrievalOverrides(body)
+    );
+    const result = await retrieveMemory(activeConfig, query, { embedder, reranker, store, storeInitialized: true });
     try {
       appendRetrievalLog(config, {
         query,
@@ -146,13 +151,7 @@ export async function handleRetrieve(req, res) {
     sendJson(res, 200, {
       ok: true,
       additionalContext: result.additionalContext,
-      selected: result.selected.map(candidate => ({
-        id: candidate.id,
-        source: candidate.source,
-        score: candidate.score,
-        rerankScore: candidate.rerankScore,
-        finalScore: candidate.finalScore
-      }))
+      selected: result.selected.map(candidatePayload)
     });
   } catch (err) {
     console.error(`[recall] retrieve failed: ${err.message}`);
