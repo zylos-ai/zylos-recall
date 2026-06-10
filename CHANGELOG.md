@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-06-10
 
 ### Security
 - Default corpus denylist now excludes secret-named directories
@@ -160,4 +160,10 @@ The rerank filter is opt-in. Existing installs that explicitly configure
 `retrieval.pipeline` must include `rerankFilter` in that pipeline when enabling
 `filter.provider: "rerank"`.
 
-No migration required.
+Existing installs with an explicit `corpus.deny` array in `config.json` do NOT
+automatically receive this release's new secret-protection deny entries
+(arrays replace defaults). After upgrading, add them with
+`zylos-recall config deny add <pattern>`, or delete the `corpus` arrays from
+`config.json` to track the built-in defaults.
+
+No other migration required.
