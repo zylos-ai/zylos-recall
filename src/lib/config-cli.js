@@ -1,0 +1,159 @@
+import fs from 'node:fs';
+import { DEFAULT_CONFIG } from './config.js';
+
+export const SETTABLE_CONFIG_PATHS = Object.freeze([
+  'enabled',
+  'retrieval.topK',
+  'retrieval.bm25TopK',
+  'retrieval.rrfK',
+  'retrieval.bm25AdmitTopN',
+  'retrieval.threshold',
+  'retrieval.maxTotalTokens',
+  'retrieval.recencyWeight',
+  'retrieval.tierPenalties.<tier>',
+  'filter.provider',
+  'filter.threshold',
+  'filter.keepK',
+  'service.timeoutMs'
+]);
+
+const EXACT_SETTERS = new Set(SETTABLE_CONFIG_PATHS.filter(path => !path.includes('<')));
+const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+export function getConfigValue(config, dotPath = null) {
+  if (!dotPath) return config;
+  const { parent, key } = locateParent(config, dotPath, { requireExisting: true });
+  return parent[key];
+}
+
+export function setConfigValue(config, dotPath, rawValue) {
+  assertSettablePath(dotPath);
+  const next = structuredClone(config);
+  const { parent, key, current } = locateParent(next, dotPath, {
+    requireExisting: !isTierPenaltyPath(dotPath)
+  });
+  parent[key] = parseConfigValue(dotPath, rawValue, current);
+  return next;
+}
+
+export function assertSettablePath(dotPath) {
+  if (EXACT_SETTERS.has(dotPath) || isTierPenaltyPath(dotPath)) return;
+  throw new Error(
+    `Config path "${dotPath}" is not settable. Settable paths: ${SETTABLE_CONFIG_PATHS.join(', ')}`
+  );
+}
+
+export function parseConfigValue(dotPath, rawValue, currentValue) {
+  if (dotPath === 'enabled') return parseBoolean(rawValue);
+  if (dotPath === 'filter.provider') return String(rawValue);
+  if (isTierPenaltyPath(dotPath) || typeof currentValue === 'number') {
+    return parseNumber(rawValue, dotPath);
+  }
+  if (typeof currentValue === 'boolean') return parseBoolean(rawValue);
+  if (typeof currentValue === 'string') return String(rawValue);
+  throw new Error(`Config path "${dotPath}" does not have a supported scalar type`);
+}
+
+export function formatApplyMessage({ configPath, existedBefore }) {
+  if (existedBefore) {
+    return [
+      `Saved ${configPath}.`,
+      'Running zylos-recall services that already watch this config reload it and restart runtime after the file-change event.',
+      'The hook client reads service.timeoutMs from config on each turn, so that timeout changes immediately for new hook calls.'
+    ].join(' ');
+  }
+  return [
+    `Saved ${configPath}.`,
+    'Restart zylos-recall to apply service-side changes because this config file did not exist for the service watcher.',
+    'The hook client reads service.timeoutMs from config on each turn, so that timeout changes immediately for new hook calls.'
+  ].join(' ');
+}
+
+export function configFileExisted(configPath) {
+  return fs.existsSync(configPath);
+}
+
+export function sensitiveConfigKeyPaths(config = DEFAULT_CONFIG) {
+  const paths = [];
+  collectSensitiveKeys(config, [], paths);
+  return paths;
+}
+
+function locateParent(config, dotPath, { requireExisting }) {
+  const segments = pathSegments(dotPath);
+  let parent = config;
+  for (const segment of segments.slice(0, -1)) {
+    if (!parent || typeof parent !== 'object' || Array.isArray(parent)) {
+      throw new Error(`Config path "${dotPath}" does not exist`);
+    }
+    if (!(segment in parent)) {
+      if (requireExisting) throw new Error(`Config path "${dotPath}" does not exist`);
+      parent[segment] = {};
+    }
+    parent = parent[segment];
+  }
+
+  const key = segments.at(-1);
+  if (!parent || typeof parent !== 'object' || Array.isArray(parent)) {
+    throw new Error(`Config path "${dotPath}" does not exist`);
+  }
+  if (requireExisting && !(key in parent)) {
+    throw new Error(`Config path "${dotPath}" does not exist`);
+  }
+  return { parent, key, current: parent[key] };
+}
+
+function pathSegments(dotPath) {
+  const segments = String(dotPath || '').split('.');
+  if (!segments.length || segments.some(segment => !segment || UNSAFE_PATH_SEGMENTS.has(segment))) {
+    throw new Error(`Invalid config path: ${dotPath}`);
+  }
+  return segments;
+}
+
+function isTierPenaltyPath(dotPath) {
+  const segments = String(dotPath || '').split('.');
+  return (
+    segments.length === 3 &&
+    segments[0] === 'retrieval' &&
+    segments[1] === 'tierPenalties' &&
+    Boolean(segments[2]) &&
+    !UNSAFE_PATH_SEGMENTS.has(segments[2])
+  );
+}
+
+function parseBoolean(rawValue) {
+  if (rawValue === true || rawValue === 'true') return true;
+  if (rawValue === false || rawValue === 'false') return false;
+  throw new Error(`Expected boolean value "true" or "false", got "${rawValue}"`);
+}
+
+function parseNumber(rawValue, dotPath) {
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) {
+    throw new Error(`Expected numeric value for ${dotPath}, got "${rawValue}"`);
+  }
+  return value;
+}
+
+function collectSensitiveKeys(value, prefix, paths) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return;
+  for (const [key, child] of Object.entries(value)) {
+    const nextPath = [...prefix, key];
+    if (isSensitiveKey(key)) paths.push(nextPath.join('.'));
+    collectSensitiveKeys(child, nextPath, paths);
+  }
+}
+
+function isSensitiveKey(key) {
+  const normalized = String(key).replace(/[_-]/g, '').toLowerCase();
+  if (
+    normalized.includes('apikey') ||
+    normalized.includes('secret') ||
+    normalized.includes('password') ||
+    normalized.includes('credential') ||
+    normalized.includes('privatekey')
+  ) {
+    return true;
+  }
+  return normalized.includes('token') && !normalized.endsWith('tokens');
+}

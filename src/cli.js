@@ -1,11 +1,17 @@
 #!/usr/bin/env node
 
-import { loadConfig } from './lib/config.js';
+import { CONFIG_PATH, loadConfig, saveConfig } from './lib/config.js';
 import { buildIndex, queryIndex } from './lib/indexer.js';
 import { retrieveMemory } from './lib/retriever.js';
 import { inspectSession, formatInspection, inspectRetrievalLog, formatRetrievalLogInspection } from './inspect.js';
 import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import {
+  configFileExisted,
+  formatApplyMessage,
+  getConfigValue,
+  setConfigValue
+} from './lib/config-cli.js';
 import {
   formatRecallText,
   formatTocText,
@@ -21,6 +27,8 @@ function usage() {
   zylos-recall retrieve [--config <path>] <text>
   zylos-recall recall [--config <path>] [--top-k <n>] [--bm25-top-k <n>] [--max-total-tokens <n>] [--format text|json] <text>
   zylos-recall toc [--config <path>] [--tier <type>] [--full] [--format text|json]
+  zylos-recall config get [--config <path>] [<dot.path>]
+  zylos-recall config set [--config <path>] <dot.path> <value>
   zylos-recall inspect [--session <id|latest>] [--last <n>] [--full]
   zylos-recall inspect --retrieval-log [<path>] [--last <n>]
 `;
@@ -64,7 +72,9 @@ export async function runCli({
   configLoader = loadConfig,
   fetchImpl = globalThis.fetch,
   timeoutSignal = ms => AbortSignal.timeout(ms),
-  directRetrieve
+  directRetrieve,
+  configSaver = saveConfig,
+  configExists = configFileExisted
 } = {}) {
   const { command, options, positionals } = parseArgs(argv);
   if (options.help || !command) {
@@ -83,6 +93,30 @@ export async function runCli({
     const result = inspectSession({ session: options.session });
     stdout.write(`${formatInspection(result, { last: options.last || 12, full: options.full })}\n`);
     return;
+  }
+
+  if (command === 'config') {
+    const configPath = options.configPath || CONFIG_PATH;
+    const subcommand = positionals[0];
+    if (subcommand === 'get') {
+      const config = configLoader(options.configPath);
+      const value = getConfigValue(config, positionals[1]);
+      stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+      return;
+    }
+    if (subcommand === 'set') {
+      if (positionals.length < 3) {
+        throw new Error('config set requires <dot.path> and <value>');
+      }
+      const [, dotPath, rawValue] = positionals;
+      const existedBefore = configExists(configPath);
+      const config = configLoader(options.configPath);
+      const next = setConfigValue(config, dotPath, rawValue);
+      configSaver(next, configPath);
+      stdout.write(`${formatApplyMessage({ configPath, existedBefore })}\n`);
+      return;
+    }
+    throw new Error(`Unknown config command: ${subcommand || '(missing)'}\n${usage()}`);
   }
 
   const config = configLoader(options.configPath);
