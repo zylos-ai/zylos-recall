@@ -39,7 +39,7 @@ export async function main() {
   console.log(`[recall] Config loaded, enabled: ${config.enabled}`);
 
   if (!config.enabled) {
-    console.log('[recall] Component disabled in config, exiting.');
+    console.log('[recall] Component disabled in config, exiting with code 0. PM2 will park this as waiting restart without relaunching.');
     process.exit(0);
   }
 
@@ -48,7 +48,7 @@ export async function main() {
     console.log('[recall] Config reloaded');
     config = newConfig;
     if (!newConfig.enabled) {
-      console.log('[recall] Component disabled, stopping...');
+      console.log('[recall] Component disabled, exiting with code 0. PM2 will park this as waiting restart without relaunching.');
       shutdown();
       return;
     }

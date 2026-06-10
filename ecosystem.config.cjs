@@ -14,6 +14,7 @@ module.exports = {
     },
     // Restart on failure
     autorestart: true,
+    stop_exit_codes: [0],
     max_restarts: 10,
     restart_delay: 5000,
     // Logs managed by PM2

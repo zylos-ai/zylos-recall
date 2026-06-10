@@ -108,13 +108,13 @@ export function formatApplyMessage({ configPath, existedBefore }) {
   if (existedBefore) {
     return [
       `Saved ${configPath}.`,
-      'Running zylos-recall services that already watch this config reload it and restart runtime after the file-change event.',
+      'Running zylos-recall services watch the config directory, reload this config once after duplicate file-change events settle, and restart runtime.',
       'The hook client reads service.timeoutMs from config on each turn, so that timeout changes immediately for new hook calls.'
     ].join(' ');
   }
   return [
     `Saved ${configPath}.`,
-    'Restart zylos-recall to apply service-side changes because this config file did not exist for the service watcher.',
+    'Running zylos-recall services watch the config directory, so creating this file is applied after the file-change event.',
     'The hook client reads service.timeoutMs from config on each turn, so that timeout changes immediately for new hook calls.'
   ].join(' ');
 }
