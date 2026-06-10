@@ -6,6 +6,8 @@ import { test } from 'node:test';
 import { DEFAULT_CONFIG } from '../src/lib/config.js';
 import { retrieveMemory } from '../src/lib/retriever.js';
 
+const LEGACY_PIPELINE = ['denseRetrieve', 'rerankFilter', 'freeGates', 'assemble'];
+
 class FakeEmbedder {
   id() {
     return 'fake@2';
@@ -23,8 +25,9 @@ class FakeEmbedder {
 }
 
 class FakeStore {
-  constructor(candidates, { expectedTopK = 5 } = {}) {
+  constructor(candidates, { expectedTopK = 5, textCandidates = [] } = {}) {
     this.candidates = candidates;
+    this.textCandidates = textCandidates;
     this.expectedTopK = expectedTopK;
     this.initialized = false;
     this.closed = false;
@@ -38,6 +41,12 @@ class FakeStore {
     assert.deepEqual(vector, [1, 0]);
     assert.equal(options.topK, this.expectedTopK);
     return this.candidates;
+  }
+
+  searchText(query, options) {
+    assert.equal(query, 'alpha project');
+    assert.equal(options.topK, 10);
+    return this.textCandidates;
   }
 
   close() {
@@ -65,6 +74,7 @@ class ThrowingReranker {
 
 test('retrieval pipeline gates, ranks, budgets, and assembles context', async () => {
   const config = structuredClone(DEFAULT_CONFIG);
+  config.retrieval.pipeline = LEGACY_PIPELINE;
   const { root, mtimes } = makeCorpus(['old', 'new', 'duplicate', 'weak']);
   config.corpus.roots = [root];
   config.retrieval.threshold = 0.5;
@@ -130,6 +140,7 @@ test('retrieval pipeline gates, ranks, budgets, and assembles context', async ()
 
 test('rerank filter gates and orders candidates before free gates', async () => {
   const config = structuredClone(DEFAULT_CONFIG);
+  config.retrieval.pipeline = LEGACY_PIPELINE;
   const { root, mtimes } = makeCorpus(['high-cosine', 'best-rerank', 'low-rerank']);
   config.corpus.roots = [root];
   config.retrieval.topK = 3;
@@ -197,6 +208,7 @@ test('rerank filter gates and orders candidates before free gates', async () => 
 
 test('rerank filter fails open when reranker throws', async () => {
   const config = structuredClone(DEFAULT_CONFIG);
+  config.retrieval.pipeline = LEGACY_PIPELINE;
   const { root, mtimes } = makeCorpus(['alpha']);
   config.corpus.roots = [root];
   config.retrieval.threshold = 0.1;
@@ -224,6 +236,7 @@ test('rerank filter fails open when reranker throws', async () => {
 
 test('retrieval returns empty context when gates reject all candidates', async () => {
   const config = structuredClone(DEFAULT_CONFIG);
+  config.retrieval.pipeline = LEGACY_PIPELINE;
   const { root, mtimes } = makeCorpus(['weak']);
   config.corpus.roots = [root];
   config.retrieval.threshold = 0.95;
@@ -245,6 +258,7 @@ test('retrieval returns empty context when gates reject all candidates', async (
 
 test('free gates log budget drops', async () => {
   const config = structuredClone(DEFAULT_CONFIG);
+  config.retrieval.pipeline = LEGACY_PIPELINE;
   const { root, mtimes } = makeCorpus(['first', 'second']);
   config.corpus.roots = [root];
   config.retrieval.threshold = 0.1;
@@ -282,6 +296,7 @@ test('free gates log budget drops', async () => {
 
 test('retrieval drops stale candidates whose source file changed after indexing', async () => {
   const config = structuredClone(DEFAULT_CONFIG);
+  config.retrieval.pipeline = LEGACY_PIPELINE;
   const { root, mtimes } = makeCorpus(['stale']);
   config.corpus.roots = [root];
   fs.appendFileSync(path.join(root, 'memory/reference/stale.md'), '\nnewer edit');
@@ -300,6 +315,132 @@ test('retrieval drops stale candidates whose source file changed after indexing'
 
   assert.equal(result.additionalContext, '');
   assert.equal(result.selected.length, 0);
+});
+
+test('default hybrid pipeline fuses dense and BM25 ranks before gates', async () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  const { root, mtimes } = makeCorpus(['dense-only', 'consensus', 'bm25-only', 'bm25-weak']);
+  config.corpus.roots = [root];
+  config.retrieval.threshold = 0.5;
+  config.retrieval.recencyWeight = 0;
+  config.retrieval.maxTotalTokens = 100;
+  const store = new FakeStore([
+    candidate('dense-only', {
+      hash: 'dense-only-hash',
+      score: 0.9,
+      mtime: mtimes['dense-only'],
+      text: 'dense only alpha project memory'
+    }),
+    candidate('consensus', {
+      hash: 'consensus-hash',
+      score: 0.8,
+      mtime: mtimes.consensus,
+      text: 'consensus alpha project memory'
+    })
+  ], {
+    textCandidates: [
+      candidate('consensus', {
+        hash: 'consensus-hash',
+        bm25Score: 12,
+        mtime: mtimes.consensus,
+        text: 'consensus alpha project memory'
+      }),
+      candidate('bm25-only', {
+        hash: 'bm25-only-hash',
+        bm25Score: 10,
+        mtime: mtimes['bm25-only'],
+        text: 'bm25 only alpha project memory'
+      }),
+      candidate('bm25-weak', {
+        hash: 'bm25-weak-hash',
+        bm25Score: 8,
+        mtime: mtimes['bm25-weak'],
+        text: 'weak bm25 alpha project memory'
+      })
+    ]
+  });
+
+  const result = await retrieveMemory(config, 'alpha project', {
+    embedder: new FakeEmbedder(),
+    store
+  });
+
+  assert.deepEqual(result.log.map(entry => entry.stage), ['denseRetrieve', 'bm25Retrieve', 'rrfFuse', 'freeGates', 'assemble']);
+  assert.deepEqual(result.selected.map(item => item.id), ['consensus', 'dense-only', 'bm25-only']);
+  const consensus = result.selected.find(item => item.id === 'consensus');
+  assert.equal(consensus.denseRank, 2);
+  assert.equal(consensus.bm25Rank, 1);
+  assert.ok(consensus.normalizedFused > result.selected.find(item => item.id === 'dense-only').normalizedFused);
+  const rrfLog = result.log.find(entry => entry.stage === 'rrfFuse');
+  assert.deepEqual(rrfLog.candidates.find(item => item.id === 'consensus'), {
+    id: 'consensus',
+    denseRank: 2,
+    bm25Rank: 1,
+    fusedScore: 0.032522
+  });
+  const freeLog = result.log.find(entry => entry.stage === 'freeGates');
+  assert.equal(freeLog.drops.bm25WeakNoDense, 1);
+  assert.deepEqual(freeLog.candidates.find(item => item.id === 'bm25-weak'), {
+    id: 'bm25-weak',
+    dropReason: 'bm25WeakNoDense'
+  });
+  assert.equal(JSON.stringify(result.log).includes('consensus alpha project memory'), false);
+});
+
+test('legacy pipeline does not call BM25 and preserves old stage shape', async () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  const { root, mtimes } = makeCorpus(['alpha']);
+  config.corpus.roots = [root];
+  config.retrieval.pipeline = ['denseRetrieve', 'freeGates', 'assemble'];
+  config.retrieval.threshold = 0.1;
+  const store = new FakeStore([
+    candidate('alpha', {
+      hash: 'alpha-hash',
+      score: 0.9,
+      mtime: mtimes.alpha,
+      text: 'alpha project memory'
+    })
+  ]);
+  store.searchText = () => {
+    throw new Error('legacy pipeline should not call searchText');
+  };
+
+  const result = await retrieveMemory(config, 'alpha project', {
+    embedder: new FakeEmbedder(),
+    store
+  });
+
+  assert.deepEqual(result.log.map(entry => entry.stage), ['denseRetrieve', 'freeGates', 'assemble']);
+  assert.equal(result.selected[0].id, 'alpha');
+  assert.equal(result.selected[0].rankScore, 0.9);
+});
+
+test('BM25 retrieval fails open when text search throws', async () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  const { root, mtimes } = makeCorpus(['alpha']);
+  config.corpus.roots = [root];
+  config.retrieval.threshold = 0.1;
+  const store = new FakeStore([
+    candidate('alpha', {
+      hash: 'alpha-hash',
+      score: 0.9,
+      mtime: mtimes.alpha,
+      text: 'alpha project memory'
+    })
+  ]);
+  store.searchText = () => {
+    throw new Error('fts unavailable');
+  };
+
+  const result = await retrieveMemory(config, 'alpha project', {
+    embedder: new FakeEmbedder(),
+    store
+  });
+
+  assert.equal(result.selected[0].id, 'alpha');
+  const bm25Log = result.log.find(entry => entry.stage === 'bm25Retrieve');
+  assert.equal(bm25Log.failOpen, true);
+  assert.equal(bm25Log.reason, 'fts unavailable');
 });
 
 function makeCorpus(ids) {

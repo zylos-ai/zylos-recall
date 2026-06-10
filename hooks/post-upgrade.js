@@ -70,6 +70,26 @@ if (fs.existsSync(configPath)) {
       migrated = true;
       migrations.push('Added indexPath field');
     }
+    if (!config.retrieval) {
+      config.retrieval = {};
+      migrated = true;
+      migrations.push('Added retrieval config');
+    }
+    if (config.retrieval.bm25TopK === undefined) {
+      config.retrieval.bm25TopK = 10;
+      migrated = true;
+      migrations.push('Added retrieval.bm25TopK');
+    }
+    if (config.retrieval.rrfK === undefined) {
+      config.retrieval.rrfK = 60;
+      migrated = true;
+      migrations.push('Added retrieval.rrfK');
+    }
+    if (config.retrieval.bm25AdmitTopN === undefined) {
+      config.retrieval.bm25AdmitTopN = 2;
+      migrated = true;
+      migrations.push('Added retrieval.bm25AdmitTopN');
+    }
     if (arraysEqual(config.corpus?.allow, OLD_DEFAULT_ALLOW)) {
       config.corpus.allow = NARROW_DEFAULT_ALLOW;
       migrated = true;

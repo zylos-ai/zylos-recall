@@ -24,6 +24,7 @@ test('post-upgrade preserves existing timeout and threshold values', () => {
       maxFileBytes: 524288
     },
     retrieval: {
+      pipeline: ['denseRetrieve', 'freeGates', 'assemble'],
       threshold: 0.65
     },
     service: {
@@ -51,4 +52,8 @@ test('post-upgrade preserves existing timeout and threshold values', () => {
   const migrated = JSON.parse(fs.readFileSync(configPath, 'utf8'));
   assert.equal(migrated.service.timeoutMs, 1000);
   assert.equal(migrated.retrieval.threshold, 0.65);
+  assert.deepEqual(migrated.retrieval.pipeline, ['denseRetrieve', 'freeGates', 'assemble']);
+  assert.equal(migrated.retrieval.bm25TopK, 10);
+  assert.equal(migrated.retrieval.rrfK, 60);
+  assert.equal(migrated.retrieval.bm25AdmitTopN, 2);
 });

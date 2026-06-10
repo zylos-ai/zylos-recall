@@ -50,6 +50,13 @@ export class ChunkStore {
       );
       CREATE INDEX IF NOT EXISTS idx_embeddings_chunk ON embeddings(chunk_id);
       CREATE INDEX IF NOT EXISTS idx_embeddings_embedder ON embeddings(embedder_id);
+      CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
+        chunk_id UNINDEXED,
+        text,
+        source,
+        section,
+        tokenize='unicode61'
+      );
     `);
 
     const current = this.getEmbedderMeta();
@@ -64,6 +71,7 @@ export class ChunkStore {
     } else {
       this.setEmbedderMeta(embedder);
     }
+    this.backfillFtsIfNeeded();
   }
 
   vectorTableExists() {
@@ -95,6 +103,7 @@ export class ChunkStore {
     this.db.exec(`
       DROP TABLE IF EXISTS vec_embeddings;
       DELETE FROM embeddings;
+      DELETE FROM fts_chunks;
       DELETE FROM chunks;
     `);
     this.createVectorTable(embedder.dimension());
@@ -118,6 +127,8 @@ export class ChunkStore {
     const selectEmbeddingIds = this.db.prepare('SELECT id FROM embeddings WHERE chunk_id = ?');
     const deleteVector = this.db.prepare('DELETE FROM vec_embeddings WHERE rowid = ?');
     const deleteChunk = this.db.prepare('DELETE FROM chunks WHERE id = ?');
+    const deleteFts = this.db.prepare('DELETE FROM fts_chunks WHERE chunk_id = ?');
+    const insertFts = this.db.prepare('INSERT INTO fts_chunks(chunk_id, text, source, section) VALUES (?, ?, ?, ?)');
     const selectChunk = this.db.prepare('SELECT hash FROM chunks WHERE id = ?');
     const upsertChunk = this.db.prepare(`
       INSERT INTO chunks (
@@ -152,6 +163,7 @@ export class ChunkStore {
         for (const row of selectEmbeddingIds.all(id)) {
           deleteVector.run(BigInt(row.id));
         }
+        deleteFts.run(id);
         removed += deleteChunk.run(id).changes;
       }
 
@@ -172,13 +184,14 @@ export class ChunkStore {
           createdAt: now,
           updatedAt: now
         });
-
         const isUnchanged = existing?.hash === chunk.hash;
         if (!existing) inserted += 1;
         else if (isUnchanged) unchanged += 1;
         else updated += 1;
 
         if (!isUnchanged) {
+          deleteFts.run(chunk.id);
+          insertFts.run(chunk.id, chunk.text, chunk.source, chunk.section);
           for (const row of selectEmbeddingIds.all(chunk.id)) {
             deleteVector.run(BigInt(row.id));
           }
@@ -228,6 +241,72 @@ export class ChunkStore {
       score: 1 / (1 + row.distance)
     }));
   }
+
+  searchText(query, { topK = 10 } = {}) {
+    const match = buildFtsMatchQuery(query);
+    if (!match) return [];
+    const limit = Math.max(1, Number(topK) || 10);
+    try {
+      const rows = this.db.prepare(`
+        SELECT
+          c.id,
+          c.text,
+          c.source,
+          c.section,
+          c.hash,
+          c.mtime,
+          c.token_count,
+          c.metadata_json,
+          -bm25(fts_chunks) AS bm25_score
+        FROM fts_chunks
+        JOIN chunks c ON c.id = fts_chunks.chunk_id
+        WHERE fts_chunks MATCH ?
+        ORDER BY bm25(fts_chunks), c.mtime DESC
+        LIMIT ?
+      `).all(match, limit);
+
+      return rows.map(row => ({
+        ...rowToChunk(row),
+        bm25Score: row.bm25_score
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  backfillFtsIfNeeded() {
+    const chunkCount = this.db.prepare('SELECT COUNT(*) AS count FROM chunks').get().count;
+    const ftsCount = this.db.prepare('SELECT COUNT(*) AS count FROM fts_chunks').get().count;
+    if (chunkCount === ftsCount) return;
+
+    const rows = this.db.prepare('SELECT id, text, source, section FROM chunks').all();
+    const insertFts = this.db.prepare('INSERT INTO fts_chunks(chunk_id, text, source, section) VALUES (?, ?, ?, ?)');
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM fts_chunks').run();
+      for (const row of rows) {
+        insertFts.run(row.id, row.text, row.source, row.section);
+      }
+    });
+    tx();
+  }
+}
+
+export function buildFtsMatchQuery(query) {
+  const terms = String(query || '')
+    .normalize('NFKC')
+    .match(/[\p{L}\p{N}_]+/gu);
+  if (!terms) return '';
+
+  const unique = [];
+  const seen = new Set();
+  for (const term of terms) {
+    const normalized = term.trim();
+    const key = normalized.toLocaleLowerCase();
+    if (!normalized || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(`"${normalized.replace(/"/g, '""')}"`);
+  }
+  return unique.join(' OR ');
 }
 
 function rowToChunk(row) {
