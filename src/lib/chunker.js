@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { sha256, shortHash } from './hash.js';
 
+export const CHUNKER_VERSION = 1;
+
 const HEADING_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
 const LIST_MARKER_RE = /^(\s*)(?:[-*+]\s+|\d+[.)]\s+)/;
 const BOLD_LABEL_RE = /^(\s*)(?:(?:[-*+]\s+|\d+[.)]\s+))?\*\*[^*\n]{1,120}:\*\*/;
