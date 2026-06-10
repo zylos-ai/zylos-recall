@@ -77,3 +77,33 @@ test('denies secret-named directories and credential-named files inside allowed 
     .sort();
   assert.deepEqual(files, ['memory/reference/project/notes.md']);
 });
+
+test('does not descend into deny-matched directories', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-corpus-prune-'));
+  const deniedDir = path.join(root, 'workspace/repo/.backup');
+  fs.mkdirSync(path.join(deniedDir, 'old'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'workspace/repo/docs'), { recursive: true });
+  fs.writeFileSync(path.join(deniedDir, 'old/README.md'), '# Backup\n\nDenied backup content should never be traversed.');
+  fs.writeFileSync(path.join(root, 'workspace/repo/docs/guide.md'), '# Guide\n\nAllowed docs content should still be traversed.');
+
+  const config = structuredClone(DEFAULT_CONFIG);
+  config.corpus.roots = [root];
+
+  const originalReaddir = fs.readdirSync;
+  const readDirs = [];
+  fs.readdirSync = function(current, ...args) {
+    readDirs.push(path.resolve(current));
+    assert.notEqual(path.resolve(current), deniedDir);
+    return originalReaddir.call(this, current, ...args);
+  };
+
+  try {
+    const files = [...walkCorpusFiles(config)]
+      .map(entry => path.relative(root, entry.filePath).split(path.sep).join('/'))
+      .sort();
+    assert.deepEqual(files, ['workspace/repo/docs/guide.md']);
+    assert.equal(readDirs.includes(deniedDir), false);
+  } finally {
+    fs.readdirSync = originalReaddir;
+  }
+});
