@@ -1,4 +1,4 @@
-import { estimateTokens } from './chunker.js';
+import { estimateTokens } from './tokens.js';
 
 export const DEFAULT_TOPIC_ENGINE_CONFIG = Object.freeze({
   K: 7,
@@ -22,6 +22,13 @@ export class TopicEngine {
     this.nextSlotNumber = 1;
   }
 
+  /**
+   * Routes one read-time message.
+   *
+   * For `decision: 'new'`, `slotId` is null on cold start, the nearest slot id
+   * on below-threshold drift, and the stale slot id after that slot was evicted
+   * on staleness-forced regeneration.
+   */
   async route({ text, turnIndex, contextPct = null } = {}) {
     const normalizedText = normalizeText(text);
     const normalizedTurn = normalizeTurnIndex(turnIndex);
@@ -51,9 +58,11 @@ export class TopicEngine {
       best.score >= this.config.sameTopicThreshold &&
       isStale(best.slot, normalizedTurn, contextPct, this.config)
     ) {
+      const staleSlotId = best.slot.id;
+      this.evictSlot(staleSlotId);
       return {
         decision: 'new',
-        slotId: best.slot.id,
+        slotId: staleSlotId,
         situationKey: null,
         anchorVec,
         score: best.score,
@@ -186,6 +195,12 @@ export class TopicEngine {
     this.activeTopics = this.activeTopics.filter(slot => slot.id !== evict.id);
   }
 
+  evictSlot(slotId) {
+    const before = this.activeTopics.length;
+    this.activeTopics = this.activeTopics.filter(slot => slot.id !== slotId);
+    return this.activeTopics.length !== before;
+  }
+
   async embedOne(text) {
     const vectors = await this.embedder.embed([text], 'query');
     if (!Array.isArray(vectors) || vectors.length !== 1) {
@@ -239,6 +254,8 @@ export function isSubstantiveTopicText(text, config = DEFAULT_TOPIC_ENGINE_CONFI
   return true;
 }
 
+// W4 owns the canonical topic/read envelope normalization for W3. The legacy
+// retrieve-hook skip rule is expected to be removed with the v0.1 chunk policy.
 export function normalizeTopicText(input) {
   let text = String(input || '').trim();
   const currentMessage = text.match(/<current-message>\s*([\s\S]*?)\s*<\/current-message>/i);

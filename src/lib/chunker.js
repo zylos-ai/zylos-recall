@@ -1,19 +1,13 @@
 import path from 'node:path';
 import { sha256, shortHash } from './hash.js';
+import { estimateTokens } from './tokens.js';
+export { estimateTokens };
 
 export const CHUNKER_VERSION = 1;
 
 const HEADING_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
 const LIST_MARKER_RE = /^(\s*)(?:[-*+]\s+|\d+[.)]\s+)/;
 const BOLD_LABEL_RE = /^(\s*)(?:(?:[-*+]\s+|\d+[.)]\s+))?\*\*[^*\n]{1,120}:\*\*/;
-
-export function estimateTokens(text) {
-  if (!text) return 0;
-  const latinWords = text.match(/[A-Za-z0-9_]+(?:[-'][A-Za-z0-9_]+)?/g) || [];
-  const cjkChars = text.match(/[\u3400-\u9fff]/g) || [];
-  const other = Math.ceil(text.replace(/[A-Za-z0-9_\s\u3400-\u9fff'-]/g, '').length / 3);
-  return latinWords.length + cjkChars.length + other;
-}
 
 function slugify(value) {
   const slug = value

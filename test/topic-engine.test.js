@@ -131,6 +131,7 @@ test('staleness floor forces new despite high similarity', async () => {
   assert.equal(byTurn.decision, 'new');
   assert.equal(byTurn.slotId, alphaId);
   assert.equal(byTurn.stale, true);
+  assert.deepEqual(engine.slots(), []);
 
   const freshEngine = new TopicEngine({
     embedder: new StubEmbedder(TEXT_VECTORS),
@@ -145,6 +146,34 @@ test('staleness floor forces new despite high similarity', async () => {
   const byContext = await freshEngine.route({ text: 'alpha follow up details', turnIndex: 1, contextPct: 16 });
   assert.equal(byContext.decision, 'new');
   assert.equal(byContext.stale, true);
+  assert.deepEqual(freshEngine.slots(), []);
+});
+
+test('staleness regeneration does not grow duplicate slots', async () => {
+  const engine = new TopicEngine({
+    embedder: new StubEmbedder(TEXT_VECTORS),
+    config: testConfig({ stalenessFloorTurns: 2 })
+  });
+
+  let route = await engine.route({ text: 'alpha planning details', turnIndex: 0 });
+  engine.admit({ situationKey: 'alpha key 1', anchorVec: route.anchorVec, turnIndex: 0 });
+  assert.equal(engine.slots().length, 1);
+
+  route = await engine.route({ text: 'alpha follow up details', turnIndex: 2 });
+  assert.equal(route.decision, 'new');
+  assert.equal(route.stale, true);
+  assert.equal(engine.slots().length, 0);
+
+  engine.admit({ situationKey: 'alpha key 2', anchorVec: route.anchorVec, turnIndex: 2 });
+  assert.equal(engine.slots().length, 1);
+  assert.equal(engine.slots()[0].situationKey, 'alpha key 2');
+
+  route = await engine.route({ text: 'alpha follow up details', turnIndex: 4 });
+  assert.equal(route.decision, 'new');
+  assert.equal(route.stale, true);
+  engine.admit({ situationKey: 'alpha key 3', anchorVec: route.anchorVec, turnIndex: 4 });
+  assert.equal(engine.slots().length, 1);
+  assert.equal(engine.slots()[0].situationKey, 'alpha key 3');
 });
 
 test('segment builds deterministic topic boundaries and attaches short messages', async () => {

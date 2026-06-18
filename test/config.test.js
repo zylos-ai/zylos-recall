@@ -185,6 +185,10 @@ test('config watcher debounces duplicate atomic-save events and re-arms after re
     await delay(100);
     assert.deepEqual(seen, [6]);
 
+    saveConfig({ dataDir: dir, indexPath: path.join(dir, 'index.sqlite'), retrieval: { topK: 6 } }, configPath);
+    await delay(100);
+    assert.deepEqual(seen, [6]);
+
     saveConfig({ dataDir: dir, indexPath: path.join(dir, 'index.sqlite'), retrieval: { topK: 7 } }, configPath);
     await waitFor(() => seen.length === 2);
     await delay(100);
