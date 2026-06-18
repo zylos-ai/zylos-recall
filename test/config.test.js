@@ -27,6 +27,12 @@ test('loads defaults when config file is absent', () => {
   assert.equal(config.retrieval.rrfK, 60);
   assert.equal(config.retrieval.bm25AdmitTopN, 2);
   assert.deepEqual(config.retrieval.tierPenalties, { session: 0.05 });
+  assert.equal(config.topicEngine.K, 7);
+  assert.equal(config.topicEngine.sameTopicThreshold, 0.82);
+  assert.equal(config.topicEngine.segmentThreshold, 0.72);
+  assert.equal(config.topicEngine.stalenessFloorTurns, 40);
+  assert.equal(config.topicEngine.stalenessFloorContextPct, 25);
+  assert.equal(config.topicEngine.topicTtlTurns, 120);
 });
 
 test('rejects unsupported v1 providers', () => {
@@ -56,6 +62,16 @@ test('accepts rerank filter config and rejects invalid rerank values', () => {
       tierPenalties: { session: 0.05 }
     },
     service: { host: '127.0.0.1', port: 37537, timeoutMs: 1000 },
+    topicEngine: {
+      K: 7,
+      sameTopicThreshold: 0.82,
+      segmentThreshold: 0.72,
+      stalenessFloorTurns: 40,
+      stalenessFloorContextPct: 25,
+      topicTtlTurns: 120,
+      minSubstantiveChars: 12,
+      minSubstantiveTokens: 3
+    },
     freshness: { enabled: true, debounceMs: 0, sweepIntervalMs: 0 },
     filter: {
       provider: 'rerank',
@@ -69,6 +85,7 @@ test('accepts rerank filter config and rejects invalid rerank values', () => {
   });
 
   assert.equal(valid.filter.provider, 'rerank');
+  assert.equal(valid.topicEngine.K, 7);
 
   assert.throws(() => validateConfig({
     ...valid,
@@ -90,6 +107,27 @@ test('accepts rerank filter config and rejects invalid rerank values', () => {
     ...valid,
     filter: { ...valid.filter, maxPassageTokens: 257 }
   }), /filter\.maxPassageTokens/);
+});
+
+test('validates topic engine config', () => {
+  const config = structuredClone(DEFAULT_CONFIG);
+  config.topicEngine.sameTopicThreshold = 0.9;
+  assert.equal(validateConfig(config).topicEngine.sameTopicThreshold, 0.9);
+
+  assert.throws(() => validateConfig({
+    ...config,
+    topicEngine: { ...config.topicEngine, K: 0 }
+  }), /topicEngine\.K/);
+
+  assert.throws(() => validateConfig({
+    ...config,
+    topicEngine: { ...config.topicEngine, sameTopicThreshold: 1.1 }
+  }), /topicEngine\.sameTopicThreshold/);
+
+  assert.throws(() => validateConfig({
+    ...config,
+    topicEngine: { ...config.topicEngine, stalenessFloorContextPct: 101 }
+  }), /topicEngine\.stalenessFloorContextPct/);
 });
 
 test('validates rerank passage cap even when filter is disabled', () => {

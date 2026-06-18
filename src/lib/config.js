@@ -5,6 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { DEFAULT_TOPIC_ENGINE_CONFIG } from './topic-engine.js';
 
 const HOME = process.env.HOME || os.homedir();
 
@@ -105,6 +106,7 @@ export const DEFAULT_CONFIG = Object.freeze({
       session: 0.05
     }
   },
+  topicEngine: DEFAULT_TOPIC_ENGINE_CONFIG,
   service: {
     host: '127.0.0.1',
     port: 37537,
@@ -131,6 +133,7 @@ export const DEFAULT_CONFIG = Object.freeze({
 let config = null;
 let configWatcher = null;
 let configWatchTimer = null;
+let configWatchFingerprint = null;
 
 const CONFIG_WATCH_DEBOUNCE_MS = 50;
 
@@ -241,6 +244,32 @@ export function validateConfig(value) {
   if (!Number.isInteger(value.service?.timeoutMs) || value.service.timeoutMs <= 0) {
     errors.push('service.timeoutMs must be a positive integer');
   }
+  if (!Number.isInteger(value.topicEngine?.K) || value.topicEngine.K <= 0) {
+    errors.push('topicEngine.K must be a positive integer');
+  }
+  for (const key of ['sameTopicThreshold', 'segmentThreshold']) {
+    if (
+      typeof value.topicEngine?.[key] !== 'number' ||
+      !Number.isFinite(value.topicEngine[key]) ||
+      value.topicEngine[key] < 0 ||
+      value.topicEngine[key] > 1
+    ) {
+      errors.push(`topicEngine.${key} must be a number between 0 and 1`);
+    }
+  }
+  if (
+    typeof value.topicEngine?.stalenessFloorContextPct !== 'number' ||
+    !Number.isFinite(value.topicEngine.stalenessFloorContextPct) ||
+    value.topicEngine.stalenessFloorContextPct < 0 ||
+    value.topicEngine.stalenessFloorContextPct > 100
+  ) {
+    errors.push('topicEngine.stalenessFloorContextPct must be a number between 0 and 100');
+  }
+  for (const key of ['stalenessFloorTurns', 'topicTtlTurns', 'minSubstantiveChars', 'minSubstantiveTokens']) {
+    if (!Number.isInteger(value.topicEngine?.[key]) || value.topicEngine[key] < 0) {
+      errors.push(`topicEngine.${key} must be a non-negative integer`);
+    }
+  }
   if (typeof value.freshness?.enabled !== 'boolean') {
     errors.push('freshness.enabled must be boolean');
   }
@@ -313,6 +342,7 @@ export function saveConfig(newConfig, configPath = CONFIG_PATH) {
 
 export function watchConfig(onChange, configPath = CONFIG_PATH) {
   stopWatching();
+  configWatchFingerprint = null;
 
   const configDir = path.dirname(configPath);
   const configFile = path.basename(configPath);
@@ -328,6 +358,9 @@ export function watchConfig(onChange, configPath = CONFIG_PATH) {
       if (!fs.existsSync(configPath)) return;
       try {
         const next = loadConfig(configPath);
+        const fingerprint = JSON.stringify(next);
+        if (fingerprint === configWatchFingerprint) return;
+        configWatchFingerprint = fingerprint;
         onChange?.(next);
       } catch (err) {
         console.error(`[recall] Config reload failed: ${err.message}`);
@@ -349,4 +382,5 @@ export function stopWatching() {
     configWatcher.close();
     configWatcher = null;
   }
+  configWatchFingerprint = null;
 }
