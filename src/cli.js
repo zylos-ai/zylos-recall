@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
 import { CONFIG_PATH, loadConfig, saveConfig } from './lib/config.js';
+import { createEmbedder } from './lib/embedders/index.js';
 import { buildIndex, queryIndex } from './lib/indexer.js';
 import { retrieveMemory } from './lib/retriever.js';
 import { inspectSession, formatInspection, inspectRetrievalLog, formatRetrievalLogInspection } from './inspect.js';
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { ChunkStore } from './lib/store.js';
+import { TopicEngine } from './lib/topic-engine.js';
 import {
   configFileExisted,
   formatApplyMessage,
@@ -20,6 +23,7 @@ import {
   runRecallTool,
   runTocTool
 } from './lib/tool-face.js';
+import { NodeWriter } from './lib/write-primitives.js';
 
 function usage() {
   return `Usage:
@@ -27,6 +31,9 @@ function usage() {
   zylos-recall query [--config <path>] [--top-k <n>] <text>
   zylos-recall retrieve [--config <path>] <text>
   zylos-recall recall [--config <path>] [--top-k <n>] [--bm25-top-k <n>] [--max-total-tokens <n>] [--format text|json] <text>
+  zylos-recall segment [--config <path>] --session <file.json>
+  zylos-recall node-search [--config <path>] --key <text> [--k 5] [--kind memory]
+  zylos-recall node-apply [--config <path>] --op CREATE|UPDATE|NOOP [--key <text>] [--value <text>] [--target-id <id>] [--kind memory]
   zylos-recall toc [--config <path>] [--tier <type>] [--full] [--format text|json]
   zylos-recall config get [--config <path>] [<dot.path>]
   zylos-recall config set [--config <path>] <dot.path> <value>
@@ -51,11 +58,17 @@ export function parseArgs(argv) {
     const value = args.shift();
     if (value === '--config') options.configPath = args.shift();
     else if (value === '--top-k') options.topK = Number(args.shift());
+    else if (value === '--k') options.k = Number(args.shift());
     else if (value === '--bm25-top-k') options.bm25TopK = Number(args.shift());
     else if (value === '--max-total-tokens') options.maxTotalTokens = Number(args.shift());
     else if (value === '--format') options.format = args.shift();
     else if (value === '--tier') options.tier = args.shift();
     else if (value === '--session') options.session = args.shift();
+    else if (value === '--key') options.key = args.shift();
+    else if (value === '--value') options.value = args.shift();
+    else if (value === '--kind') options.kind = args.shift();
+    else if (value === '--op') options.op = args.shift();
+    else if (value === '--target-id') options.targetId = args.shift();
     else if (value === '--last') options.last = Number(args.shift());
     else if (value === '--full') options.full = true;
     else if (value === '--force') options.force = true;
@@ -79,7 +92,9 @@ export async function runCli({
   timeoutSignal = ms => AbortSignal.timeout(ms),
   directRetrieve,
   configSaver = saveConfig,
-  configExists = configFileExisted
+  configExists = configFileExisted,
+  embedderFactory = createEmbedder,
+  storeFactory = indexPath => new ChunkStore(indexPath)
 } = {}) {
   const { command, options, positionals } = parseArgs(argv);
   if (options.help || !command) {
@@ -145,6 +160,46 @@ export async function runCli({
   }
 
   const config = configLoader(options.configPath);
+
+  if (command === 'segment') {
+    if (!options.session) throw new Error('segment requires --session <file.json>');
+    const messages = readJsonArrayFile(options.session, 'session');
+    const embedder = embedderFactory(config.embedder);
+    const topicEngine = new TopicEngine({ embedder, config: config.topicEngine });
+    const groups = await topicEngine.segment(messages);
+    writeJson(stdout, groups);
+    return;
+  }
+
+  if (command === 'node-search') {
+    const key = normalizeRequiredOption(options.key, 'key');
+    const k = options.k === undefined ? 5 : normalizePositiveInteger(options.k, 'k');
+    const { writer, store } = createOfflineNodeWriter(config, { embedderFactory, storeFactory });
+    try {
+      const result = await writer.searchNeighbors({
+        key,
+        k,
+        kind: options.kind || 'memory'
+      });
+      writeJson(stdout, result);
+    } finally {
+      store.close();
+    }
+    return;
+  }
+
+  if (command === 'node-apply') {
+    const decision = nodeApplyDecision(options);
+    const { writer, store } = createOfflineNodeWriter(config, { embedderFactory, storeFactory });
+    try {
+      const result = await writer.applyConsolidation(decision);
+      writeJson(stdout, result);
+    } finally {
+      store.close();
+    }
+    return;
+  }
+
   if (!config.enabled) {
     stderr.write('[recall] disabled in config\n');
     process.exitCode = 2;
@@ -206,6 +261,72 @@ export async function runCli({
   }
 
   throw new Error(`Unknown command: ${command}\n${usage()}`);
+}
+
+function readJsonArrayFile(file, name) {
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (err) {
+    throw new Error(`Failed to read ${name} JSON: ${err.message}`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${name} JSON must be an array`);
+  }
+  return parsed;
+}
+
+function createOfflineNodeWriter(config, { embedderFactory, storeFactory }) {
+  const embedder = embedderFactory(config.embedder);
+  const store = storeFactory(config.indexPath);
+  store.initialize(embedder);
+  return {
+    store,
+    writer: new NodeWriter({ store, embedder })
+  };
+}
+
+function nodeApplyDecision(options) {
+  const operation = String(options.op || '').trim().toUpperCase();
+  if (!['CREATE', 'UPDATE', 'NOOP'].includes(operation)) {
+    throw new Error('node-apply --op must be CREATE, UPDATE, or NOOP');
+  }
+  if (operation === 'CREATE') {
+    return {
+      operation,
+      key: normalizeRequiredOption(options.key, 'key'),
+      value: normalizeRequiredOption(options.value, 'value'),
+      kind: options.kind || 'memory'
+    };
+  }
+  if (operation === 'UPDATE') {
+    return {
+      operation,
+      target_id: normalizeRequiredOption(options.targetId, 'target-id'),
+      value: normalizeRequiredOption(options.value, 'value'),
+      kind: options.kind || 'memory'
+    };
+  }
+  return { operation, kind: options.kind || 'memory' };
+}
+
+function normalizeRequiredOption(value, name) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`--${name} must be non-empty`);
+  }
+  return value.trim();
+}
+
+function normalizePositiveInteger(value, name) {
+  const number = Number(value);
+  if (!Number.isInteger(number) || number <= 0) {
+    throw new Error(`--${name} must be a positive integer`);
+  }
+  return number;
+}
+
+function writeJson(stdout, value) {
+  stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
 function normalizeFormat(value) {

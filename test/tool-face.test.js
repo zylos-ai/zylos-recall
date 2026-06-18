@@ -17,6 +17,15 @@ class FakeEmbedder {
   dimension() {
     return 2;
   }
+
+  async embed(texts, mode) {
+    assert.equal(mode, 'query');
+    return texts.map(text => {
+      const normalized = String(text).toLowerCase();
+      if (normalized.includes('beta')) return [0, 1];
+      return [1, 0];
+    });
+  }
 }
 
 test('recall CLI sends clamped tool overrides and renders JSON hits', async () => {
@@ -136,6 +145,135 @@ test('toc CLI groups sqlite chunks by tier and stays compact by default', async 
       sections: ['Session Alpha', 'Session Beta']
     }]
   }]);
+});
+
+test('segment CLI prints topic segment index groups as JSON', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'recall-cli-segment-'));
+  const sessionPath = path.join(dir, 'session.json');
+  fs.writeFileSync(sessionPath, JSON.stringify([
+    { text: 'Alpha owner changed.' },
+    'Alpha budget changed.',
+    { text: 'Beta launch moved.' }
+  ]));
+  const stdout = [];
+
+  await runCli({
+    argv: ['segment', '--session', sessionPath],
+    stdout: { write: value => stdout.push(value) },
+    stderr: { write() {} },
+    configLoader: () => testConfig(),
+    embedderFactory: () => new FakeEmbedder()
+  });
+
+  assert.deepEqual(JSON.parse(stdout.join('')), [[0, 1], [2]]);
+});
+
+test('node-search CLI round-trips a written node with stable JSON shape', async () => {
+  const config = testConfig();
+  const createOut = [];
+  await runCli({
+    argv: ['node-apply', '--op', 'CREATE', '--key', 'Alpha owner', '--value', 'Felix owns Alpha'],
+    stdout: { write: value => createOut.push(value) },
+    stderr: { write() {} },
+    configLoader: () => config,
+    embedderFactory: () => new FakeEmbedder()
+  });
+  const created = JSON.parse(createOut.join(''));
+  assert.deepEqual(Object.keys(created).sort(), ['id', 'op']);
+  assert.equal(created.op, 'CREATE');
+
+  const searchOut = [];
+  await runCli({
+    argv: ['node-search', '--key', 'Alpha owner', '--k', '5'],
+    stdout: { write: value => searchOut.push(value) },
+    stderr: { write() {} },
+    configLoader: () => config,
+    embedderFactory: () => new FakeEmbedder()
+  });
+
+  const results = JSON.parse(searchOut.join(''));
+  assert.equal(results.length, 1);
+  assert.deepEqual(Object.keys(results[0]).sort(), ['id', 'key', 'score', 'value']);
+  assert.equal(results[0].id, created.id);
+  assert.equal(results[0].key, 'Alpha owner');
+  assert.equal(results[0].value, 'Felix owns Alpha');
+  assert.equal(typeof results[0].score, 'number');
+});
+
+test('node-apply CLI handles CREATE UPDATE NOOP and rejects bad args', async () => {
+  const config = testConfig();
+  const createOut = [];
+  await runCli({
+    argv: ['node-apply', '--op', 'CREATE', '--key', 'Alpha plan', '--value', 'Initial value'],
+    stdout: { write: value => createOut.push(value) },
+    stderr: { write() {} },
+    configLoader: () => config,
+    embedderFactory: () => new FakeEmbedder()
+  });
+  const created = JSON.parse(createOut.join(''));
+  assert.equal(created.op, 'CREATE');
+  assert.ok(created.id);
+
+  const updateOut = [];
+  await runCli({
+    argv: ['node-apply', '--op', 'UPDATE', '--target-id', created.id, '--value', 'Updated value'],
+    stdout: { write: value => updateOut.push(value) },
+    stderr: { write() {} },
+    configLoader: () => config,
+    embedderFactory: () => new FakeEmbedder()
+  });
+  assert.deepEqual(JSON.parse(updateOut.join('')), { id: created.id, op: 'UPDATE' });
+
+  const searchOut = [];
+  await runCli({
+    argv: ['node-search', '--key', 'Alpha plan'],
+    stdout: { write: value => searchOut.push(value) },
+    stderr: { write() {} },
+    configLoader: () => config,
+    embedderFactory: () => new FakeEmbedder()
+  });
+  assert.equal(JSON.parse(searchOut.join(''))[0].value, 'Updated value');
+
+  const noopOut = [];
+  await runCli({
+    argv: ['node-apply', '--op', 'NOOP'],
+    stdout: { write: value => noopOut.push(value) },
+    stderr: { write() {} },
+    configLoader: () => config,
+    embedderFactory: () => new FakeEmbedder()
+  });
+  assert.deepEqual(JSON.parse(noopOut.join('')), { id: null, op: 'NOOP' });
+
+  await assert.rejects(
+    () => runCli({
+      argv: ['node-apply', '--op', 'CREATE', '--key', 'Alpha plan'],
+      stdout: { write() {} },
+      stderr: { write() {} },
+      configLoader: () => config,
+      embedderFactory: () => new FakeEmbedder()
+    }),
+    /--value must be non-empty/
+  );
+  await assert.rejects(
+    () => runCli({
+      argv: ['node-apply', '--op', 'UPDATE', '--value', 'Missing target'],
+      stdout: { write() {} },
+      stderr: { write() {} },
+      configLoader: () => config,
+      embedderFactory: () => new FakeEmbedder()
+    }),
+    /--target-id must be non-empty/
+  );
+  await assert.rejects(
+    () => runCli({
+      argv: ['node-apply', '--op', 'DELETE'],
+      stdout: { write() {} },
+      stderr: { write() {} },
+      configLoader: () => config,
+      embedderFactory: () => new FakeEmbedder()
+    }),
+    /node-apply --op must be CREATE, UPDATE, or NOOP/
+  );
 });
 
 test('cli entrypoint runs when invoked through a bin-style symlink', () => {
