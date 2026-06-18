@@ -1,4 +1,4 @@
-import { estimateTokens } from './chunker.js';
+import { estimateTokens } from './tokens.js';
 import { assemble } from './retriever.js';
 
 export const DEFAULT_READ_CORE_CONFIG = Object.freeze({
@@ -174,6 +174,7 @@ export function lexicalFinalPick(candidates, contextText, { enabled = true } = {
   const queryTerms = contentTerms(contextText);
   if (queryTerms.size === 0) return candidates;
 
+  // Reorder only; narrowing is deferred until the key/value R&D check.
   const scored = candidates.map((candidate, index) => ({
     candidate,
     index,
