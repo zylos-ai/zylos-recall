@@ -1,5 +1,7 @@
 import { estimateTokens } from './tokens.js';
 
+export const TOPIC_EMBED_MODE = 'query';
+
 export const DEFAULT_TOPIC_ENGINE_CONFIG = Object.freeze({
   K: 7,
   sameTopicThreshold: 0.82,
@@ -202,7 +204,7 @@ export class TopicEngine {
   }
 
   async embedOne(text) {
-    const vectors = await this.embedder.embed([text], 'query');
+    const vectors = await this.embedder.embed([text], TOPIC_EMBED_MODE);
     if (!Array.isArray(vectors) || vectors.length !== 1) {
       throw new Error('Embedder returned an invalid topic vector batch');
     }

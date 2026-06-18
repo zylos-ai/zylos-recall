@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import * as sqliteVec from 'sqlite-vec';
+import { estimateTokens } from './tokens.js';
 
 export class ChunkStore {
   constructor(indexPath) {
@@ -139,7 +140,7 @@ export class ChunkStore {
     let unchanged = 0;
     let removed = 0;
 
-    const selectAllChunkIds = this.db.prepare('SELECT id FROM chunks');
+    const selectAllChunkIds = this.db.prepare('SELECT id, metadata_json FROM chunks');
     const selectEmbeddingIds = this.db.prepare('SELECT id FROM embeddings WHERE chunk_id = ?');
     const deleteVector = this.db.prepare('DELETE FROM vec_embeddings WHERE rowid = ?');
     const deleteChunk = this.db.prepare('DELETE FROM chunks WHERE id = ?');
@@ -173,9 +174,11 @@ export class ChunkStore {
     const insertVector = this.db.prepare('INSERT INTO vec_embeddings(rowid, embedding) VALUES (?, ?)');
 
     const tx = this.db.transaction(() => {
-      const existingIds = selectAllChunkIds.all().map(row => row.id);
-      for (const id of existingIds) {
+      const existingRows = selectAllChunkIds.all();
+      for (const row of existingRows) {
+        const id = row.id;
         if (seenIds.has(id)) continue;
+        if (isMemoryNodeMetadata(row.metadata_json)) continue;
         for (const row of selectEmbeddingIds.all(id)) {
           deleteVector.run(BigInt(row.id));
         }
@@ -247,12 +250,143 @@ export class ChunkStore {
       JOIN embeddings e ON e.id = v.rowid
       JOIN chunks c ON c.id = e.chunk_id
       WHERE v.embedding MATCH ? AND k = ?
+        AND NOT (c.source = 'recall:nodes' AND c.section = 'memory')
       ORDER BY v.distance
     `).all(JSON.stringify(vector), topK);
 
     return rows.map(row => ({
       ...rowToChunk(row),
       embedderId: row.embedder_id,
+      distance: row.distance,
+      score: 1 / (1 + row.distance)
+    }));
+  }
+
+  upsertMemoryNode({ id, key, value, kind = 'memory', embedderId, vector, hash, now = Date.now() }) {
+    const metadata = { kind, key, value };
+    const embeddings = [{
+      embedder_id: embedderId,
+      vector,
+      vector_index: 0,
+      mode: 'query'
+    }];
+    const existing = this.db.prepare('SELECT created_at FROM chunks WHERE id = ?').get(id);
+    const upsertChunk = this.db.prepare(`
+      INSERT INTO chunks (
+        id, text, source, section, hash, mtime, token_count,
+        metadata_json, embeddings_json, created_at, updated_at
+      ) VALUES (
+        @id, @text, 'recall:nodes', @kind, @hash, @now, @tokenCount,
+        @metadataJson, @embeddingsJson, @createdAt, @now
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        text = excluded.text,
+        source = excluded.source,
+        section = excluded.section,
+        hash = excluded.hash,
+        mtime = excluded.mtime,
+        token_count = excluded.token_count,
+        metadata_json = excluded.metadata_json,
+        embeddings_json = excluded.embeddings_json,
+        updated_at = excluded.updated_at
+    `);
+    const selectEmbeddingIds = this.db.prepare('SELECT id FROM embeddings WHERE chunk_id = ?');
+    const deleteVector = this.db.prepare('DELETE FROM vec_embeddings WHERE rowid = ?');
+    const deleteEmbeddings = this.db.prepare('DELETE FROM embeddings WHERE chunk_id = ?');
+    const deleteFts = this.db.prepare('DELETE FROM fts_chunks WHERE chunk_id = ?');
+    const insertEmbedding = this.db.prepare(`
+      INSERT INTO embeddings(chunk_id, embedder_id, vector_index, hash, created_at)
+      VALUES (?, ?, 0, ?, ?)
+    `);
+    const insertVector = this.db.prepare('INSERT INTO vec_embeddings(rowid, embedding) VALUES (?, ?)');
+
+    const tx = this.db.transaction(() => {
+      upsertChunk.run({
+        id,
+        text: key,
+        kind,
+        hash,
+        now,
+        tokenCount: estimateNodeTokens(key),
+        metadataJson: JSON.stringify(metadata),
+        embeddingsJson: JSON.stringify(embeddings),
+        createdAt: existing?.created_at ?? now
+      });
+      deleteFts.run(id);
+      for (const row of selectEmbeddingIds.all(id)) {
+        deleteVector.run(BigInt(row.id));
+      }
+      deleteEmbeddings.run(id);
+      const result = insertEmbedding.run(id, embedderId, hash, now);
+      insertVector.run(BigInt(result.lastInsertRowid), JSON.stringify(vector));
+    });
+    tx();
+  }
+
+  getMemoryNode(id) {
+    const row = this.db.prepare(`
+      SELECT id, text, section, metadata_json, created_at, updated_at
+      FROM chunks
+      WHERE id = ? AND source = 'recall:nodes'
+    `).get(id);
+    return row ? rowToMemoryNode(row) : null;
+  }
+
+  listMemoryNodes({ kind = 'memory' } = {}) {
+    const rows = this.db.prepare(`
+      SELECT id, text, section, metadata_json, created_at, updated_at
+      FROM chunks
+      WHERE source = 'recall:nodes' AND section = ?
+      ORDER BY id
+    `).all(kind);
+    return rows.map(rowToMemoryNode);
+  }
+
+  updateMemoryNodeValue(id, value) {
+    const node = this.getMemoryNode(id);
+    if (!node) return false;
+    const now = Date.now();
+    const metadata = { ...node.metadata, value };
+    const changes = this.db.prepare(`
+      UPDATE chunks
+      SET metadata_json = ?, updated_at = ?
+      WHERE id = ? AND source = 'recall:nodes'
+    `).run(JSON.stringify(metadata), now, id).changes;
+    return changes > 0;
+  }
+
+  searchMemoryNodes(vector, { kind = 'memory', topK = 5 } = {}) {
+    const limit = Math.max(1, Number(topK) || 5);
+    const memoryCount = this.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM chunks
+      WHERE source = 'recall:nodes' AND section = ?
+    `).get(kind).count;
+    if (memoryCount === 0) return [];
+    const vectorCount = this.db.prepare('SELECT COUNT(*) AS count FROM vec_embeddings').get().count;
+    if (vectorCount === 0) return [];
+
+    const rows = this.db.prepare(`
+      SELECT
+        c.id,
+        c.text,
+        c.section,
+        c.metadata_json,
+        c.created_at,
+        c.updated_at,
+        v.distance
+      FROM vec_embeddings v
+      JOIN embeddings e ON e.id = v.rowid
+      JOIN chunks c ON c.id = e.chunk_id
+      WHERE v.embedding MATCH ? AND k = ?
+        AND c.source = 'recall:nodes'
+        AND c.section = ?
+      ORDER BY v.distance
+      LIMIT ?
+    `).all(JSON.stringify(vector), vectorCount, kind, limit);
+
+    return rows.map(row => ({
+      ...rowToMemoryNode(row),
       distance: row.distance,
       score: 1 / (1 + row.distance)
     }));
@@ -295,6 +429,7 @@ export class ChunkStore {
     const rows = this.db.prepare(`
       SELECT source, section, mtime, metadata_json
       FROM chunks
+      WHERE NOT (source = 'recall:nodes' AND section = 'memory')
       ORDER BY source, section
     `).all();
 
@@ -331,11 +466,17 @@ export class ChunkStore {
   }
 
   backfillFtsIfNeeded() {
-    const chunkCount = this.db.prepare('SELECT COUNT(*) AS count FROM chunks').get().count;
+    const chunkCount = this.db.prepare(`
+      SELECT COUNT(*) AS count FROM chunks
+      WHERE NOT (source = 'recall:nodes' AND section = 'memory')
+    `).get().count;
     const ftsCount = this.db.prepare('SELECT COUNT(*) AS count FROM fts_chunks').get().count;
     if (chunkCount === ftsCount) return;
 
-    const rows = this.db.prepare('SELECT id, text, source, section FROM chunks').all();
+    const rows = this.db.prepare(`
+      SELECT id, text, source, section FROM chunks
+      WHERE NOT (source = 'recall:nodes' AND section = 'memory')
+    `).all();
     const insertFts = this.db.prepare('INSERT INTO fts_chunks(chunk_id, text, source, section) VALUES (?, ?, ?, ?)');
     const tx = this.db.transaction(() => {
       this.db.prepare('DELETE FROM fts_chunks').run();
@@ -377,6 +518,28 @@ function rowToChunk(row) {
     metadata: JSON.parse(row.metadata_json),
     embeddings: row.embeddings_json ? JSON.parse(row.embeddings_json) : []
   };
+}
+
+function rowToMemoryNode(row) {
+  const metadata = safeJson(row.metadata_json);
+  return {
+    id: row.id,
+    key: metadata.key ?? row.text,
+    value: metadata.value,
+    kind: metadata.kind ?? row.section,
+    metadata,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function isMemoryNodeMetadata(metadataJson) {
+  const metadata = safeJson(metadataJson);
+  return metadata.kind === 'memory';
+}
+
+function estimateNodeTokens(text) {
+  return Math.max(1, estimateTokens(text));
 }
 
 function safeJson(value) {
