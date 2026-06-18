@@ -109,6 +109,30 @@ test('happy path segments a session and creates memory nodes', async () => {
   }
 });
 
+test('strips C4 reply plumbing before extraction', async () => {
+  const { store, writer } = setupWriter();
+  try {
+    const llmClient = new ReplayLlmClient({
+      extract: [{ memories: [] }]
+    });
+
+    const summary = await distillSession({
+      messages: [
+        '[HXA:coco DM] zylos-felix-vm said: <current-message>Alpha changed owner.</current-message> ---- reply via: node /Users/felixlin/zylos/.claude/skills/comm-bridge/scripts/c4-send.js "hxa-connect" "org:coco|zylos-felix-vm"'
+      ],
+      llmClient,
+      topicEngine: new StubTopicEngine([[0]]),
+      nodeWriter: writer
+    });
+
+    assert.deepEqual(summary, { segments: 1, created: 0, updated: 0, noop: 0, skipped: 0 });
+    assert.equal(llmClient.extractCalls[0], 'Alpha changed owner.');
+    assert.equal(llmClient.consolidateCalls.length, 0);
+  } finally {
+    store.close();
+  }
+});
+
 test('updates existing neighbor and preserves id/key', async () => {
   const { store, writer } = setupWriter();
   try {
@@ -196,6 +220,37 @@ test('exact-key backstop routes CREATE to UPDATE instead of overwriting by creat
     assert.equal(writer.getNode(existing.id).key, 'alpha decision');
     assert.equal(writer.getNode(existing.id).value, 'Alpha now uses option B.');
     assert.equal(llmClient.consolidateCalls[0].neighbors[0].id, existing.id);
+  } finally {
+    store.close();
+  }
+});
+
+test('exact-key backstop is case-sensitive like node identity', async () => {
+  const { store, writer } = setupWriter();
+  try {
+    await writer.writeNode({
+      key: 'Alpha Decision',
+      value: 'Alpha uses option A.'
+    });
+    const llmClient = new ReplayLlmClient({
+      extract: [{ memories: [{ key: 'alpha decision', value: 'Alpha uses option B.' }] }],
+      consolidate: [{
+        operation: 'CREATE',
+        target_id: null,
+        value: 'Alpha uses option B.',
+        reason: 'case variant distinct key'
+      }]
+    });
+
+    const summary = await distillSession({
+      messages: ['Alpha now uses option B.'],
+      llmClient,
+      topicEngine: new StubTopicEngine([[0]]),
+      nodeWriter: writer
+    });
+
+    assert.deepEqual(summary, { segments: 1, created: 1, updated: 0, noop: 0, skipped: 0 });
+    assert.deepEqual(writer.listNodes().map(node => node.key), ['Alpha Decision', 'alpha decision']);
   } finally {
     store.close();
   }

@@ -1,3 +1,5 @@
+import { normalizeTopicText } from './topic-engine.js';
+
 export const EXTRACTION_PROMPT = `SYSTEM
 You extract atomic memories from a slice of the agent's conversation: read the slice, find
 what is worth remembering, and for each, write (a) the SITUATION it should be recalled in
@@ -119,7 +121,7 @@ async function processMemoryItem({ item, llmClient, nodeWriter, k, maxRepairs })
     await nodeWriter.applyConsolidation({
       operation: 'UPDATE',
       target_id: exact.id,
-      value: decision.value || item.value
+      value: decision.value
     });
     return { op: 'UPDATE', skipped: 0 };
   }
@@ -249,12 +251,14 @@ function normalizeDecision(value, neighbors, exact) {
 }
 
 function exactKeyNeighbor(key, neighbors) {
-  const normalized = key.toLocaleLowerCase();
-  return neighbors.find(neighbor => neighbor.key.toLocaleLowerCase() === normalized) || null;
+  return neighbors.find(neighbor => neighbor.key === key) || null;
 }
 
 function buildSegmentText(messages, indexes) {
-  return indexes.map(index => messageText(messages[index])).filter(Boolean).join('\n\n');
+  return indexes
+    .map(index => normalizeTopicText(messageText(messages[index])))
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 function messageText(message) {
