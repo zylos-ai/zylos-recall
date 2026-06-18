@@ -11,12 +11,13 @@ import { ChunkStore } from '../src/lib/store.js';
 import { NODE_EMBED_MODE, NodeWriter } from '../src/lib/write-primitives.js';
 
 class StubEmbedder {
-  constructor() {
+  constructor(id = 'stub@3') {
+    this.name = id;
     this.calls = [];
   }
 
   id() {
-    return 'stub@3';
+    return this.name;
   }
 
   dimension() {
@@ -137,14 +138,48 @@ Alpha project durable detail.`);
     store.initialize(embedder);
     const writer = new NodeWriter({ store, embedder });
     const node = await writer.writeNode({ key: 'beta memory node', value: 'Beta node value.' });
+    const lesson = await writer.writeNode({
+      key: 'lesson node',
+      value: 'Lesson node value.',
+      kind: 'lesson'
+    });
     fs.writeFileSync(file, `# Gamma
 
 Gamma project replaces the old file corpus.`);
     await buildIndex(config, { embedder });
 
     assert.equal(writer.getNode(node.id).value, 'Beta node value.');
+    assert.equal(writer.getNode(lesson.id).value, 'Lesson node value.');
     assert.equal(ftsHasChunk(config.indexPath, node.id), false);
+    assert.equal(ftsHasChunk(config.indexPath, lesson.id), false);
     assert.deepEqual(store.listTocRows().map(row => row.section), ['Gamma']);
+    assert.equal(store.countChunks(), 1);
+  } finally {
+    store.close();
+  }
+});
+
+test('fullReindex preserves all node kinds and clears stale node embeddings', async () => {
+  const { store, embedder, writer } = setupWriter();
+  try {
+    const memory = await writer.writeNode({ key: 'alpha memory', value: 'Alpha value.' });
+    const lesson = await writer.writeNode({
+      key: 'beta lesson',
+      value: 'Beta lesson value.',
+      kind: 'lesson'
+    });
+    await insertDormantChunk(store);
+
+    assert.equal(store.countChunks(), 1);
+    assert.equal(await writer.searchNeighbors({ key: 'alpha question', k: 1 }).then(rows => rows.length), 1);
+
+    store.initialize(new StubEmbedder('stub-v2@3'));
+
+    assert.equal(writer.getNode(memory.id).value, 'Alpha value.');
+    assert.equal(writer.getNode(lesson.id).value, 'Beta lesson value.');
+    assert.equal(store.countChunks(), 0);
+    assert.deepEqual(await writer.searchNeighbors({ key: 'alpha question', k: 1 }), []);
+    assert.equal(embeddingCount(store), 0);
   } finally {
     store.close();
   }
@@ -205,4 +240,8 @@ function ftsHasChunk(indexPath, id) {
   } finally {
     db.close();
   }
+}
+
+function embeddingCount(store) {
+  return store.db.prepare('SELECT COUNT(*) AS count FROM embeddings').get().count;
 }

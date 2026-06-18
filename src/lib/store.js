@@ -117,12 +117,18 @@ export class ChunkStore {
   }
 
   fullReindex(embedder) {
+    const now = Date.now();
     this.db.exec(`
       DROP TABLE IF EXISTS vec_embeddings;
       DELETE FROM embeddings;
       DELETE FROM fts_chunks;
-      DELETE FROM chunks;
+      DELETE FROM chunks WHERE source <> 'recall:nodes';
     `);
+    this.db.prepare(`
+      UPDATE chunks
+      SET embeddings_json = '[]', updated_at = ?
+      WHERE source = 'recall:nodes'
+    `).run(now);
     this.createVectorTable(embedder.dimension());
     this.setEmbedderMeta(embedder);
   }
@@ -140,7 +146,7 @@ export class ChunkStore {
     let unchanged = 0;
     let removed = 0;
 
-    const selectAllChunkIds = this.db.prepare('SELECT id, metadata_json FROM chunks');
+    const selectAllChunkIds = this.db.prepare('SELECT id, source FROM chunks');
     const selectEmbeddingIds = this.db.prepare('SELECT id FROM embeddings WHERE chunk_id = ?');
     const deleteVector = this.db.prepare('DELETE FROM vec_embeddings WHERE rowid = ?');
     const deleteChunk = this.db.prepare('DELETE FROM chunks WHERE id = ?');
@@ -178,7 +184,7 @@ export class ChunkStore {
       for (const row of existingRows) {
         const id = row.id;
         if (seenIds.has(id)) continue;
-        if (isMemoryNodeMetadata(row.metadata_json)) continue;
+        if (isNodeSource(row.source)) continue;
         for (const row of selectEmbeddingIds.all(id)) {
           deleteVector.run(BigInt(row.id));
         }
@@ -250,7 +256,7 @@ export class ChunkStore {
       JOIN embeddings e ON e.id = v.rowid
       JOIN chunks c ON c.id = e.chunk_id
       WHERE v.embedding MATCH ? AND k = ?
-        AND NOT (c.source = 'recall:nodes' AND c.section = 'memory')
+        AND c.source <> 'recall:nodes'
       ORDER BY v.distance
     `).all(JSON.stringify(vector), topK);
 
@@ -411,6 +417,7 @@ export class ChunkStore {
         FROM fts_chunks
         JOIN chunks c ON c.id = fts_chunks.chunk_id
         WHERE fts_chunks MATCH ?
+          AND c.source <> 'recall:nodes'
         ORDER BY bm25(fts_chunks), c.mtime DESC
         LIMIT ?
       `).all(match, limit);
@@ -429,7 +436,7 @@ export class ChunkStore {
     const rows = this.db.prepare(`
       SELECT source, section, mtime, metadata_json
       FROM chunks
-      WHERE NOT (source = 'recall:nodes' AND section = 'memory')
+      WHERE source <> 'recall:nodes'
       ORDER BY source, section
     `).all();
 
@@ -462,20 +469,23 @@ export class ChunkStore {
 
   countChunks() {
     if (!this.chunkTableExists()) return 0;
-    return this.db.prepare('SELECT COUNT(*) AS count FROM chunks').get().count;
+    return this.db.prepare(`
+      SELECT COUNT(*) AS count FROM chunks
+      WHERE source <> 'recall:nodes'
+    `).get().count;
   }
 
   backfillFtsIfNeeded() {
     const chunkCount = this.db.prepare(`
       SELECT COUNT(*) AS count FROM chunks
-      WHERE NOT (source = 'recall:nodes' AND section = 'memory')
+      WHERE source <> 'recall:nodes'
     `).get().count;
     const ftsCount = this.db.prepare('SELECT COUNT(*) AS count FROM fts_chunks').get().count;
     if (chunkCount === ftsCount) return;
 
     const rows = this.db.prepare(`
       SELECT id, text, source, section FROM chunks
-      WHERE NOT (source = 'recall:nodes' AND section = 'memory')
+      WHERE source <> 'recall:nodes'
     `).all();
     const insertFts = this.db.prepare('INSERT INTO fts_chunks(chunk_id, text, source, section) VALUES (?, ?, ?, ?)');
     const tx = this.db.transaction(() => {
@@ -533,9 +543,8 @@ function rowToMemoryNode(row) {
   };
 }
 
-function isMemoryNodeMetadata(metadataJson) {
-  const metadata = safeJson(metadataJson);
-  return metadata.kind === 'memory';
+function isNodeSource(source) {
+  return source === 'recall:nodes';
 }
 
 function estimateNodeTokens(text) {
